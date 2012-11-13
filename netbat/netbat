@@ -1,0 +1,95 @@
+#!/usr/bin/env ruby
+
+module Netbat; end
+
+THIS_DIR = File.expand_path(File.dirname(__FILE__))
+$: << File.join(THIS_DIR, "..")
+
+require 'netbat/datagram/xmpp_socket'
+
+require 'optparse'
+
+module Netbat
+	
+	class Cmd
+
+		SB_TYPES = [:xmpp]
+		
+		def self.parse(argv)
+			options = {
+				:verbose 			=> 0,
+				:cx_amt				=> 1,
+				:sb_type			=> :xmpp
+			}
+												
+			optparse = OptionParser.new do |opts|
+				opts.banner = "usage: #{File.basename(__FILE__)} [options] SRC-ADDR [DST-ADDR]"
+				opts.separator ""
+
+				opts.on('-l', '--listen', 'wait for incoming connections' ) do |listen|
+					options[:listen] = listen
+				end
+				
+				n_desc = [
+					"amount of connections to accept (0 => unlimited).",
+					"default: #{options[:cx_amt].inspect}" 
+				].join(" ")
+				opts.on('-n', '--cx-amt N', n_desc) do |amt|
+					options[:cx_amt] = (amt < 0)? 1 : amt
+				end
+				
+				b_desc = [
+					"use TYPE as side band. default: #{options[:sb_type].inspect}",
+					#"#{"\t"*5}types: #{SB_TYPES.join(",")}"
+				].join("\n")
+
+				opts.on('-b', '--side-band TYPE', b_desc) do |sb|
+					options[:side_band] = sb
+				end
+
+				opts.separator ""
+				opts.separator "Common options:"
+
+				opts.on('-v', '--verbose', 'verbose output' ) do
+					options[:verbose] += 1
+				end
+
+				opts.on('-h', '--help', 'display this message' ) do
+					raise ""
+				end
+			end
+			
+			begin
+				optparse.parse!(argv)
+				
+				argv.shift
+				options[:src_addr] = argv.shift
+			
+				if options[:src_addr].nil? || options[:src_addr].strip.empty?
+					raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
+				end
+				
+				if options[:listen].nil?
+					options[:dst_addr] = argv.shift
+					if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
+						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}" 
+					end
+				end
+
+			rescue Exception => e
+				puts e.message
+				puts optparse
+				
+				exit
+			end	
+			
+			return options
+		end
+	end
+end
+
+
+if $0 == __FILE__
+	options = Netbat::Cmd::parse(ARGV)
+	Netbat::Cmd::run(options)
+end

@@ -1,0 +1,37 @@
+  C                      |         S
+-------------------------|-------------
+info?                    |  type: 	filtered|open|nat
+                         |  ip: 	y.y.y.y
+-------------------------|-------------
+if S.type == open: connect, stop
+otherwise negotiate holepunch for S
+-----------------------------------------
+s_holepunch              |  port: N
+ip:			x.x.x.x      |
+-----------------------------------------
+connect(y.y.y.y:N)
+i = 0
+N_i = algo_next(N)
+while !connected && (type & nat) == 1
+  if i > max_tries
+    break
+  N_i = algo_next(N_i)
+  connect(y.y.y.y:N_i)
+
+if connected: stop
+-------------------------|----------------
+c_holepunch              |  
+ip:         x.x.x.x      |  
+port: 		M            |
+type: filt|open|nat      |
+-------------------------|----------------
+							connect(x.x.x.x:M)
+							i = 0
+						    M_i = algo_next(M)
+							while !connected 
+							  if i > max_tries
+							    break
+							  M_i = algo_next(M_i)
+							  connect(y.y.y.y:M_i)
+							
+							if connected: stop

@@ -1,0 +1,7 @@
+
+module Netbat::Datagram
+	
+	
+end
+
+
