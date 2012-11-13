@@ -26,6 +26,10 @@ class XMPPSocket < Socket
 
 	end
 
+	def addr
+		return Addr(self.xmpp_id)
+	end
+
 	def client_handler(*args, &bloc)
 		#blather doesnt handle the case where 
 		#we clear a handler when it doesnt exist yet, and i 

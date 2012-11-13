@@ -39,6 +39,10 @@ class Socket
 		end
 	end
 
+	def addr
+		raise "not implemented"
+	end
+
 	def bound?
 		raise "not implemented"
 	end
