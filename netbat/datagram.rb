@@ -1,12 +1,37 @@
 require 'netbat/datagram/socket'
 
 module Netbat::Datagram
-	
+
+class Connection
+	attr_reader :peer_addr, :seq, :peer_seq, :socket
+
+	def initialize(dg_socket, peer_addr)
+		@peer_addr = peer_addr
+		@peer_seq = 0
+		@seq = 0
+		@socket = dg_socket
+	end
+
+	def inc_seq
+		@seq += 1
+	end
+
+	def inc_peer_seq
+		@peer_seq += 1
+	end
+
+	def send(msg)
+		@socket.send(peer_addr, msg)
+		inc_seq()
+	end
+end
+
 class Demuxer
+
 	attr_reader :socket	
 
 	def initialize(dg_socket, &ctx_factory)
-		if !dg_socket.is_a?(Datagram::Socket)
+		if !dg_socket.is_a?(Socket)
 			raise ArgumentError.new, "dg_socket must be a Socket. got: #{dg_socket.inspect}"
 		end
 		@socket = dg_socket
@@ -18,6 +43,7 @@ class Demuxer
 
 		@active = {}
 		@active_mtx = Mutex.new
+		@log = Netbat::LOG
 	end
 
 	def demux(&bloc)
@@ -26,21 +52,23 @@ class Demuxer
 		end
 		
 		@socket.on_recv do |msg, from_addr|
+			@log.debug Netbat::thread_list()
 			@active_mtx.synchronize do
+				@log.debug("active: #{@active.keys.inspect}")
 				if !@active.has_key?(from_addr)
 					@active[from_addr] = @ctx_factory.call(from_addr, msg)
 				else
 					bloc.call(@active[from_addr], msg)
 				end
+				@active[from_addr].inc_peer_seq()
 			end
 		end
 		
-		@socket.on_close do 
-			return #this returns out of this function, not just the block
+		@log.debug "demux: wait for activity"
+		loop do 
+			break if !@socket.bound?
 		end
-
-		Thread.stop
-		raise "shouldnt ever get here"
+		@log.debug "demux: finished. returning"
 	end
 end
 	

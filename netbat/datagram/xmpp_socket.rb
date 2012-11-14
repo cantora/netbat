@@ -1,5 +1,6 @@
 require 'netbat/log'
 require 'netbat/datagram/socket'
+require 'netbat/common'
 
 require 'blather/client/client'
 require 'uri'
@@ -7,27 +8,50 @@ require 'uri'
 module Netbat::Datagram
 
 class XMPPSocket < Socket
-	attr_reader :password
+	attr_reader :password, :addr
+
+	class XMPPAddr < Addr
+
+		def initialize(val)
+			super(val.to_s)
+			Netbat::assert_str(@val)
+			@uri = URI.parse(@val)
+		end
+		
+		def to_s
+			return "#{@uri.user}@#{@uri.host}/#{@uri.path}"
+		end
+
+		def domain
+			return @uri.host
+		end
+
+		def node
+			return @uri.user
+		end
+
+		def resource
+			return @uri.path
+		end
+	end
 
 	def initialize(uri)
-		assert_uri(uri)
+		Netbat::assert_uri(uri)
 
-		@user = uri.user
+		Blather.logger.level = Logger::DEBUG
+		user = uri.user
 		@password = uri.password
-		@domain = uri.host
-		@resource = uri.path
-		{:user => @user, :password => @password, :domain => @domain}.each do |k,v|
+		domain = uri.host
+		resource = uri.path
+		{:user => user, :password => @password, :domain => domain}.each do |k,v|
 			raise ArgumentError.new, "invalid #{k} in uri: #{v.inspect}" if v.nil? || v.empty?
 		end
 
-		@client = nil
+		@addr = XMPPAddr.new("xmpp://#{user}@#{domain}/#{resource}")
+		init_client()
 		@thr = nil
 		@log = Netbat::LOG
 
-	end
-
-	def addr
-		return Addr(self.xmpp_id)
 	end
 
 	def client_handler(*args, &bloc)
@@ -45,7 +69,7 @@ class XMPPSocket < Socket
 		@client = Blather::Client.setup(self.xmpp_id, @password)
 		client_handler :subscription, :request? do |s|
 			@log.debug("subsc(#{self.xmpp_id}):#{s.inspect}")
-			s.approve!
+			@client.write s.approve!
 		end
 
 		on_recv {}
@@ -54,15 +78,15 @@ class XMPPSocket < Socket
 	end
 
 	def xmpp_id
-		return File.join("#{@user}@#{@domain}", @resource)
+		return self.addr.to_s
 	end
 
 	def on_recv(&bloc)
-		client_handler(:message, :chat?, :body) do |m|
+		client_handler(:message) do |m|
 			@log.debug("recv(#{self.xmpp_id}):#{m.from.inspect}, #{m.body.inspect}")
 			bloc.call(
 				m.body, 
-				Socket::Addr.new(m.from)
+				XMPPAddr.new(m.from)
 			)
 		end
 	end
@@ -78,13 +102,19 @@ class XMPPSocket < Socket
 	def bind
 		raise "endpoint is already bound!" if !@thr.nil?
 
-		init_client()
 		@thr = Thread.new do
 			Thread.current.abort_on_exception = true
+			@log.debug "xmpp socket start client"
 			EventMachine.run { 
 				@client.run
 			}
 		end
+
+		loop do
+			break if @client.connected?
+		end
+		sleep(5)
+		return
 	end
 
 	def on_bind(&bloc)
@@ -110,7 +140,7 @@ class XMPPSocket < Socket
 		@log.debug "join thread"
 		@thr.join
 		@log.debug "thread dead"
-		@client = nil
+		init_client()
 		@thr = nil
 	end
 
@@ -119,6 +149,30 @@ class XMPPSocket < Socket
 			@log.debug("closed(#{self.xmpp_id})")
 			bloc.call()
 		end
+	end
+
+	def send(addr, msg)
+		@log.debug "send #{addr.to_s}: #{msg.inspect}"
+		@client.write Blather::Stanza::Message.new(addr.to_s, msg, :normal)
+	end
+
+	def subscribe(peer_addr)
+		@log.warn "subscribe to peer #{peer_addr.to_s}"
+
+		@client.register_tmp_handler(:stanza) do |thing|
+			raise thing.inspect
+		end
+
+		@client.write Blather::Stanza::PubSub::Subscribe.new(
+			:set, 
+			peer_addr.domain, 
+			peer_addr.node, 
+			self.xmpp_id
+		)
+
+		@log.warn "wait for peer response"
+		Thread.stop
+		raise "asdf"
 	end
 end
 

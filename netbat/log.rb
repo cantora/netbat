@@ -10,9 +10,20 @@ module Netbat
 		return ansi_color(str, 33)
 	end
 
+	def self.thread_list()
+		Thread.list.map do |thr|
+			"#{thr.object_id.to_s(16)}: #{thr.status.inspect}"
+		end.join(", ")
+	end
+
 	LOG = Logger.new($stderr)
 	LOG.formatter = proc do |sev, t, pname, msg|
-		sprintf "#{sev[0..0]}#{ansi_yellow("[%s]::")} %s\n", t.strftime("%y-%m-%d %H:%M:%S"), msg
+		sprintf(
+			"#{sev[0..0]}#{ansi_yellow("[%s]:%s:")}%s\n", 
+			t.strftime("%y-%m-%d %H:%M:%S"), 
+			Thread.current.object_id.to_s(16), 
+			msg
+		)
 	end
 
 end

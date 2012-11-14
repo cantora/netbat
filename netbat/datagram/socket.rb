@@ -4,18 +4,6 @@ require 'uri'
 
 module Netbat::Datagram
 
-def assert_uri(uri)
-	if !uri.is_a?(URI)
-		raise ArgumentError.new, "expected URI class, got: #{uri.inspect}"
-	end
-end
-
-def assert_str(str)
-	if !str.is_a?(String) && !str.empty?
-		raise ArgumentError.new, "expected non-empty string, got: #{uri.inspect}"
-	end
-end
-
 class Socket
 
 	class Addr
@@ -25,12 +13,17 @@ class Socket
 			@val = val
 		end
 
+		def to_s
+			raise "not implemented"
+		end
+
 		def hash
-			@val.hash
+			hsh = @val.hash
+			return hsh
 		end
 
 		def eql?(obj)
-			return true if obj.equal(self)
+			return false if !obj.is_a?(self.class)
 			return @val.eql?(obj.val)
 		end
 
@@ -64,6 +57,10 @@ class Socket
 	end
 
 	def close
+		raise "not implemented"
+	end
+
+	def send(addr, msg)
 		raise "not implemented"
 	end
 end

@@ -5,6 +5,7 @@ module Netbat; end
 THIS_DIR = File.expand_path(File.dirname(__FILE__))
 $: << File.join(THIS_DIR, "..")
 
+require 'netbat/datagram'
 require 'netbat/datagram/xmpp_socket'
 
 require 'optparse'
@@ -21,7 +22,8 @@ module Netbat
 			options = {
 				:verbose 			=> 0,
 				:cx_amt				=> 1,
-				:sb_type			=> :xmpp
+				:sb_type			=> :xmpp,
+				:xmpp_sub			=> false
 			}
 												
 			optparse = OptionParser.new do |opts|
@@ -41,12 +43,19 @@ module Netbat
 				end
 				
 				b_desc = [
-					"use TYPE as side band. default: #{options[:sb_type].inspect}",
+					"use TYPE for side band. default: #{options[:sb_type].inspect}",
 					#"#{"\t"*5}types: #{SB_TYPES.join(",")}"
 				].join("\n")
 
 				opts.on('-b', '--side-band TYPE', SB_TYPES, b_desc) do |sb|
 					options[:side_band] = sb
+				end
+
+				opts.separator ""
+				opts.separator "xmpp options:"
+				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
+				opts.on('--[no-]xmpp-sub', xmpp_sub_desc) do |xmpp_sub|
+					options[:xmpp_sub] = xmpp_sub
 				end
 
 				opts.separator ""
@@ -63,10 +72,8 @@ module Netbat
 			
 			begin
 				optparse.parse!(argv)
-				
-				argv.shift
+
 				options[:src_addr] = argv.shift
-			
 				if options[:src_addr].nil? || options[:src_addr].strip.empty?
 					raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
 				end
@@ -92,7 +99,7 @@ module Netbat
 			@options = options
 			@log = Logger.new($stderr)
 			@log.formatter = proc do |sev, t, pname, msg|
-				return msg + "\n"
+				Thread.current.object_id.to_s(16) + ":" + msg + "\n"
 			end
 
 			@log.level = case @options[:verbose]
@@ -115,6 +122,15 @@ module Netbat
 			end
 		end
 
+		def connect_addr(dst_addr)
+			case @options[:sb_type]
+			when :xmpp
+				Datagram::XMPPSocket::XMPPAddr.new(URI.parse(dst_addr))
+			else
+				raise "invalid side band type: #{@options[:sb_type].inspect}"
+			end
+		end
+
 		def bind_datagram
 			sock = case @options[:sb_type]
 			when :xmpp
@@ -131,25 +147,24 @@ module Netbat
 			return sock
 		end
 
-		class NBContext
-			
-			attr_reader :from_addr
-			def initialize(from_addr)
-				@from_addr = from_addr
-			end
+		class ClientCtx < Datagram::Connection; end
+		class ServerCtx < Datagram::Connection
+			#probably will end up being a state machine
 		end
 
 		def cmd_listen
+			@log.debug "cmd_listen"
+			@log.debug Netbat::thread_list()
 			sock = bind_datagram()
-			
-			dmx = Datagram::Demuxer.new(sock) do |from, first_msg|
-				@log.info "new connection from #{from.inspect}"
-				NBContext.new(from)
+			@log.debug Netbat::thread_list()
+			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg|
+				@log.info "new connection from #{peer.to_s}"
+				ServerCtx.new(sock, peer)
 			end
 			
 			dmx.demux do |ctx, msg|
-				@log.debug "message from #{ctx.from_addr.inspect}"
-
+				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
+				
 				#process message
 
 				#update ctx
@@ -159,8 +174,28 @@ module Netbat
 			end
 		end
 
+		def init_ctx(ctx)
+			
+			case @options[:sb_type]
+			when :xmpp
+				if !@options[:listen] && @options[:xmpp_sub]
+					ctx.socket.subscribe(ctx.peer_addr)
+				end
+			end
+		end
+
 		def cmd_connect
-			raise "not implemented"
+			@log.debug "cmd_connect"
+
+			sock = bind_datagram()
+			peer_addr = connect_addr(@options[:dst_addr])
+			ctx = ClientCtx.new(sock, peer_addr)
+			#init_ctx(ctx)
+						
+			loop do 
+				x = readline()
+				ctx.send(x)
+			end
 		end
 
 	end #Cmd
@@ -169,5 +204,6 @@ end
 
 if $0 == __FILE__
 	options = Netbat::Cmd::parse(ARGV)
-	Netbat::Cmd.new(options)
+	nb = Netbat::Cmd.new(options)
+	nb.run
 end
