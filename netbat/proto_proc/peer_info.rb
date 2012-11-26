@@ -1,6 +1,6 @@
 require 'netbat/proto_proc'
 require 'netbat/local_info'
-require 'netbat/protobuf/netbat.pb'
+require 'netbat/msg'
 
 module Netbat
 
@@ -23,13 +23,19 @@ class PeerInfo < ProtoProcDesc
 		end
 
 		pproc.on_recv :init do |msg|
-			if check_msg(:host_type, :supported_ops, :opcode => OPCODE)
+			if msg.error?
+				if msg.err_type == Msg::ErrType::PEER_UNAVAILABLE
+					std_err(ProtoProc::PeerUnavailable.new("peer is unavailable"))
+				else
+					proto_error("unexpected error: (#{msg.err_type.inspect}) #{msg.err.inspect}")
+				end
+			elsif msg.check(:op_code => OPCODE)
 				success(
 					LocalInfo.new(
 						msg.host_type,
 						msg.supported_ops
 					)
-				)
+				)			
 			else
 				proto_error("unexpected response: #{msg.inspect}")
 			end

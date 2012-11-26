@@ -16,13 +16,16 @@ class PunchProcDesc < ProtoProcDesc
 end
 
 class ProtoProc
-	
-	RESERVED_STATES = [
-		:init, 
+
+	TERMINAL_STATES = [
 		:failure, 
 		:success, 
 		:proto_error,
-		:timeout
+		:std_err
+	]
+
+	RESERVED_STATES = [
+		:init, 
 	]
 
 	attr_reader :state
@@ -90,18 +93,23 @@ class ProtoProc
 		return trans(:proto_error, msg)
 	end
 
-	def timeout(msg)
-		return trans(:timeout, msg)
+	def std_err(e)
+		return trans(:std_err, e)
 	end
+	
+	def timeout(msg)
+		return std_err(Timeout.new(msg))
+	end
+
 	#must have a lock on @state in this function
 	def terminated?
-		return [:success, :failure, :proto_error, :timeout].include?(@state)
+		return TERMINAL_STATES.include?(@state)
 	end
 
 	def recv(msg)
 		@state_mtx.synchronize do
-			if !terminated? && on_recv.key?(@state)
-				result = instance_exec(msg, &on_recv[@state])
+			if !terminated? && @on_recv.key?(@state)
+				result = instance_exec(msg, &@on_recv[@state])
 				if !result.is_a?(Transition)
 					raise "expected a transition object from callback"	
 				end
@@ -139,9 +147,12 @@ class ProtoProc
 	end
 
 	class ProtoProcException < Exception; end
-	class ProcedureFailed < ProtoProcException; end
 	class ProtocolFailed < ProtoProcException; end
-	class Timeout < ProtocolFailed; end
+
+	class StandardException < ProtoProcException; end
+	class ProcedureFailed < StandardException; end
+	class Timeout < StandardException; end
+	class PeerUnavailable < StandardException; end
 
 	def run()
 		if @state != :start
@@ -161,8 +172,8 @@ class ProtoProc
 				raise ProcedureFailed.new, @history.last.user
 			when :proto_error
 				raise ProtocolFailed.new, @history.last.user
-			when :timeout
-				raise Timeout.new, @history.last.user
+			when :std_err
+				raise @history.last.user
 			end
 
 			if (Time.now.to_i - @last_transition) > @idle_timeout

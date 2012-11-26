@@ -195,7 +195,9 @@ module Netbat
 			peer_addr = connect_addr(@options[:dst_addr])
 			ctx = ClientCtx.new(sock, peer_addr, local_info)
 			
-			Datagram::filter(sock, peer_addr) do |msg|
+			filter = Datagram::Filter.new(sock, peer_addr) 
+
+			filter.on_msg do |msg|
 				begin
 					ctx.recv(msg)
 				rescue Exception => e
@@ -204,10 +206,19 @@ module Netbat
 				end
 			end
 
+			filter.on_err do |err|
+				begin
+					ctx.recv_err(err)
+				rescue Exception => e
+					$stderr.puts Netbat::exception_str("fatal exception in recv_err handler: #{e.inspect}", e)
+					exit!(1)
+				end
+			end
+
 			begin
 				ctx.loop()
-			rescue ProtoProc::Timeout => e
-				$stderr.puts "peer timeout"
+			rescue ProtoProc::StandardException => e
+				$stderr.puts e.message
 			rescue Exception => e
 				$stderr.puts Netbat::exception_str("fatal exception in run loop", e)
 				exit!(1)

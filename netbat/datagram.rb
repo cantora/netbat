@@ -26,14 +26,30 @@ class Connection
 	end
 end
 
-def self.filter(dg_socket, peer_addr, &bloc)
-	if !dg_socket.is_a?(Socket)
-		raise ArgumentError.new, "dg_socket must be a Socket. got: #{dg_socket.inspect}"
+class Filter
+
+	def initialize(dg_socket, peer_addr)
+		if !dg_socket.is_a?(Socket)
+			raise ArgumentError.new, "dg_socket must be a Socket. got: #{dg_socket.inspect}"
+		end
+
+		@socket = dg_socket
+		@peer = peer_addr
 	end
 
-	dg_socket.on_recv do |msg, from_addr|
-		if from_addr == peer_addr
-			bloc.call(msg)
+	def on_msg(&bloc)
+		@socket.on_recv do |msg, from_addr|
+			if from_addr == @peer
+				bloc.call(msg)
+			end
+		end
+	end
+
+	def on_err(&bloc)
+		@socket.on_err do |err, from_addr|
+			if from_addr == @peer
+				bloc.call(err)
+			end
 		end
 	end
 	

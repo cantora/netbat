@@ -3,6 +3,7 @@ require 'netbat/datagram/socket'
 require 'netbat/common'
 
 require 'blather/client/client'
+require 'nokogiri'
 require 'uri'
 
 module Netbat::Datagram
@@ -86,10 +87,33 @@ class XMPPSocket < Socket
 		end
 
 		@client.register_handler :message, :normal?, :body do |m|
-			@log.debug("recv(#{self.xmpp_id}):#{m.from.inspect}, #{m.body.inspect}")
+			@log.debug("recv(#{self.xmpp_id}):#{m.from.inspect}, body=#{m.body.inspect}")
+
 			if !@recv_handler.nil?
 				@recv_handler.call(
 					m.body, 
+					XMPPAddr.from_uri(URI.parse("xmpp://#{m.from}") )
+				)
+			end
+		end
+
+		@client.register_handler :message, :error? do |m|
+			doc = Nokogiri::XML.parse(m.to_s)
+			err_code = doc.at_xpath("/message/error/@code")
+			raise "expected to find valid error code: #{doc.to_xml.inspect}" if err_code.nil? || err_code.value.to_i <= 0
+			
+			@log.debug("recv_err(#{self.xmpp_id}):#{m.from.inspect}, error=#{doc.to_xml.inspect}")
+
+			err_obj = case err_code.value.to_i
+			when 503
+				Socket::PeerUnavailable.new(doc.to_xml)
+			else
+				Socket::Error.new(doc.to_xml)
+			end
+
+			if !@recv_err_handler.nil?
+				@recv_err_handler.call(
+					err_obj,
 					XMPPAddr.from_uri(URI.parse("xmpp://#{m.from}") )
 				)
 			end
@@ -126,6 +150,10 @@ class XMPPSocket < Socket
 
 	def on_recv(&bloc)
 		@recv_handler = bloc
+	end
+
+	def on_err(&bloc)
+		@recv_err_handler = bloc
 	end
 
 	def on_subscription(&bloc)

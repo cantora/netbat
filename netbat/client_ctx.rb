@@ -1,4 +1,5 @@
 require 'netbat/datagram'
+
 require 'base64'
 
 ['peer_info'].each do |fname|
@@ -46,6 +47,22 @@ class ClientCtx < Datagram::Connection
 			end
 		end
 	end
+
+	def recv_err(err)
+		@current_proc_mtx.synchronize do 
+			if @current_proc.nil?
+				@log.debug log_str("dropped err: #{err.inspect}")
+			else
+				#@log.debug log_str("recv err: #{err.inspect}")
+				@current_proc.recv(Msg.new(
+					:op_code => Msg::OpCode::RESET,
+					:err => err.msg,
+					:err_type => err.err_type
+				))
+			end
+		end
+	end
+
 end
 
 end

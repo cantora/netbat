@@ -1,11 +1,32 @@
 require 'netbat/log'
 require 'netbat/datagram'
+require 'netbat/msg'
+
 require 'uri'
 
 module Netbat::Datagram
 
 class Socket
 
+	class Error
+		
+		attr_accessor :msg
+
+		def initialize(msg)
+			@msg = msg
+		end
+
+		def err_type
+			return Netbat::Msg::ErrType::UNSPECIFIED
+		end
+	end
+
+	class PeerUnavailable < Error
+		def err_type
+			return Netbat::Msg::ErrType::PEER_UNAVAILABLE
+		end
+	end
+	
 	class Addr
 
 		def to_s
