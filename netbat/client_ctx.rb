@@ -16,8 +16,8 @@ class ClientCtx < Datagram::ConnectionCtx
 		@current_proc = PeerInfo::client(self, @local_info)
 		peer_info = @current_proc.run()
 
-		raise "peer_info: #{peer_info.inspect}"
-
+		@log.debug "peer_info: #{peer_info.inspect}"
+		
 	end
 
 end

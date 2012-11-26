@@ -186,7 +186,7 @@ module Netbat
 			dmx.demux do |ctx, msg|
 				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
 
-				if msg.is_a?(Datagra::Socket::Error)
+				if msg.is_a?(Datagram::Socket::Error)
 					ctx.recv_err(msg)
 				else
 					ctx.recv(msg)

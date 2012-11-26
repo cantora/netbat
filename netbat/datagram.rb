@@ -108,12 +108,15 @@ class Filter
 
 		@socket = dg_socket
 		@peer = peer_addr
+		@log = Netbat::LOG
 	end
 
 	def on_msg(&bloc)
 		@socket.on_recv do |msg, from_addr|
 			if from_addr == @peer
 				bloc.call(msg)
+			else
+				@log.debug "filtered out message from: #{from_addr.inspect}"
 			end
 		end
 	end
@@ -122,6 +125,8 @@ class Filter
 		@socket.on_err do |err, from_addr|
 			if from_addr == @peer
 				bloc.call(err)
+			else
+				@log.debug "filtered out error from: #{from_addr.inspect}"
 			end
 		end
 	end
