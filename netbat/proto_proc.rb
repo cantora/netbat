@@ -39,14 +39,14 @@ class ProtoProc
 		@on_recv = {}
 		@log = Netbat::LOG
 		@history = []
-		@idle_timeout = 5 #seconds
+		@peer_timeout = 5 #seconds
 		
 		args.each do |arg|
 			next if !arg.is_a?(Hash)
 			arg.each do |k,v|
 				case k
-				when :idle_timeout
-					@idle_timeout = v
+				when :peer_timeout
+					@peer_timeout = v
 				end
 			end
 		end
@@ -176,11 +176,11 @@ class ProtoProc
 				raise @history.last.user
 			end
 
-			if (Time.now.to_i - @last_transition) > @idle_timeout
+			if (Time.now.to_i - @last_transition) > @peer_timeout
 				@state_mtx.synchronize do 
 					#make sure its still true
-					if (Time.now.to_i - @last_transition) > @idle_timeout
-						make_transition(timeout("idle timeout exceeded"))
+					if (Time.now.to_i - @last_transition) > @peer_timeout
+						make_transition(timeout("peer timeout exceeded"))
 					end
 				end
 			end
