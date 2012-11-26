@@ -154,7 +154,32 @@ class ProtoProc
 	class Timeout < StandardException; end
 	class PeerUnavailable < StandardException; end
 
-	def run()
+	def status()
+		#dont need to lock here b.c. if @state is one of these we are terminated
+		case @state
+		when :success
+			return @history.last.user
+		when :failure
+			raise ProcedureFailed.new, @history.last.user
+		when :proto_error
+			raise ProtocolFailed.new, @history.last.user
+		when :std_err
+			raise @history.last.user
+		end
+
+		if (Time.now.to_i - @last_transition) > @peer_timeout
+			@state_mtx.synchronize do 
+				#make sure its still true
+				if (Time.now.to_i - @last_transition) > @peer_timeout
+					make_transition(timeout("peer timeout exceeded"))
+				end
+			end
+		end
+
+		return nil
+	end
+
+	def startup()
 		if @state != :start
 			raise "current state is not :start"
 		end
@@ -162,30 +187,16 @@ class ProtoProc
 		@state_mtx.synchronize do
 			make_transition(trans(:init))
 		end
+	end
+
+	def run()
+		startup()
 
 		loop do 
-			#dont need to lock here b.c. if @state is one of these we are terminated
-			case @state
-			when :success
-				return @history.last.user
-			when :failure
-				raise ProcedureFailed.new, @history.last.user
-			when :proto_error
-				raise ProtocolFailed.new, @history.last.user
-			when :std_err
-				raise @history.last.user
-			end
-
-			if (Time.now.to_i - @last_transition) > @peer_timeout
-				@state_mtx.synchronize do 
-					#make sure its still true
-					if (Time.now.to_i - @last_transition) > @peer_timeout
-						make_transition(timeout("peer timeout exceeded"))
-					end
-				end
-			end
-
 			sleep(0.1)
+
+			result = status()
+			return result if !result.nil?
 		end		
 	end
 

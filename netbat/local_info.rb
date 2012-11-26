@@ -1,4 +1,4 @@
-require 'netbat/protobuf/netbat.pb'
+require 'netbat/msg'
 
 module Netbat
 
@@ -14,7 +14,7 @@ class LocalInfo
 
 	def supported_ops()
 		return @supported_ops.map do |opname|
-			Msg::OpCodes.const_get(opname)
+			Msg::OpCode.const_get(opname)
 		end
 	end
 end

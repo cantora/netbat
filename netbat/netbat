@@ -179,6 +179,10 @@ module Netbat
 				ctx
 			end
 			
+			dmx.on_clock do |ctx|
+				ctx.clock()
+			end
+
 			dmx.demux do |ctx, msg|
 				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
 

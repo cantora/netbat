@@ -147,6 +147,11 @@ class Demuxer
 		@active = {}
 		@active_mtx = Mutex.new
 		@log = Netbat::LOG
+		@clock = nil
+	end
+
+	def on_clock(&bloc)
+		@clock = bloc
 	end
 
 	def demux(&bloc)
@@ -182,6 +187,12 @@ class Demuxer
 		@log.debug "demux: wait for activity"
 		loop do 
 			break if !@socket.bound?
+
+			@active.each do |from, ctx|
+				@clock.call(ctx) 
+			end if !@clock.nil?
+
+			sleep(0.1)
 		end
 		@log.debug "demux: finished. returning"
 	end
