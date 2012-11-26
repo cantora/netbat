@@ -1,4 +1,5 @@
 require 'netbat/datagram/socket'
+require 'netbat/msg'
 
 module Netbat::Datagram
 
@@ -24,6 +25,78 @@ class Connection
 		@socket.send_msg(peer_addr, msg)
 		inc_seq()
 	end
+end
+
+class ConnectionCtx < Connection
+
+	def initialize(dg_socket, peer_addr, local_info)
+		super(dg_socket, peer_addr)
+
+		@local_info = local_info
+		@current_proc = nil
+		@current_proc_mtx = Mutex.new
+		@log = Netbat::LOG
+	end
+
+	def log_str(s)
+		return "#{self.class}: #{s}"	
+	end
+
+	def send_msg(msg)
+		#"msg: #{msg.inspect}\n#{msg.methods.sort.inspect}"
+		super(Base64::encode64(msg.to_s))
+	end
+
+	def decode_message(msg)
+		return Netbat::Msg::parse(Base64::decode64(msg))
+	end
+
+	def recv(msg)
+		dm = decode_message(msg)
+		proc_recv(dm)
+	end
+
+	def current_proc_lock(&bloc)
+		@current_proc_mtx.synchronize do 
+			bloc.call()
+		end
+	end
+
+	def proc_recv(decoded_msg)
+		puts "cp: #{@current_proc.nil?}"
+		current_proc_lock do 
+			if @current_proc.nil?
+				@log.debug log_str("dropped msg: #{msg.inspect}")
+			else
+				@current_proc.recv(decoded_msg)
+			end
+		end
+	end
+
+	def decode_err(err)
+		return Netbat::Msg.new(
+			:op_code => Msg::OpCode::RESET,
+			:err => err.msg,
+			:err_type => err.err_type
+		)
+	end
+
+	def recv_err(err)
+		e = decode_err(err)
+		proc_recv_err(e)
+	end
+	
+	def proc_recv_err(err)
+		current_proc_lock do
+			if @current_proc.nil?
+				@log.debug log_str("dropped err: #{err.inspect}")
+			else
+				#@log.debug log_str("recv err: #{err.inspect}")
+				@current_proc.recv()
+			end
+		end
+	end
+
 end
 
 class Filter
@@ -91,6 +164,18 @@ class Demuxer
 					bloc.call(@active[from_addr], msg)
 				end
 				@active[from_addr].inc_peer_seq()
+			end
+		end
+
+		@socket.on_err do |err, from_addr|
+			@log.debug Netbat::thread_list()
+			@active_mtx.synchronize do
+				@log.debug("active: #{@active.keys.inspect}")
+				if !@active.has_key?(from_addr)
+					@log.info "ignore error msg from non active peer: #{from_addr.inspect}"
+				else
+					bloc.call(@active[from_addr], err)
+				end
 			end
 		end
 		

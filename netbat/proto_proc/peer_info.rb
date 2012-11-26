@@ -44,8 +44,27 @@ class PeerInfo < ProtoProcDesc
 		return pproc
 	end #client
 
-	def self.server(local_info)
+	def self.server(ctx, local_info)
+		pproc = ProtoProc.new(ctx)
 		
+		pproc.on_recv :init do |msg|
+			@log.debug "peer info msg: #{msg.inspect}"
+			if msg.error?
+				proto_error("error: (#{msg.err_type.inspect}) #{msg.err.inspect}")
+			elsif msg.check(:op_code => OPCODE)
+				send_msg(Msg.new(
+					:op_code => OPCODE,
+					:host_type => local_info.host_type,
+					:supported_ops => local_info.supported_ops
+				))
+				
+				success(nil)
+			else
+				proto_error("ignoring unexpected message: #{msg.inspect}")
+			end
+		end
+				
+		return pproc
 	end
 
 end

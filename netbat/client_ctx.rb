@@ -9,16 +9,7 @@ end
 
 module Netbat
 
-class ClientCtx < Datagram::Connection
-
-	def initialize(dg_socket, peer_addr, local_info)
-		super(dg_socket, peer_addr)
-
-		@local_info = local_info
-		@current_proc = nil
-		@current_proc_mtx = Mutex.new
-		@log = Netbat::LOG
-	end
+class ClientCtx < Datagram::ConnectionCtx
 
 	def loop()
 		
@@ -27,40 +18,6 @@ class ClientCtx < Datagram::Connection
 
 		raise "peer_info: #{peer_info.inspect}"
 
-	end
-
-	def log_str(s)
-		return "ClientCtx: #{s}"	
-	end
-
-	def send_msg(msg)
-		#"msg: #{msg.inspect}\n#{msg.methods.sort.inspect}"
-		super(Base64::encode64(msg.to_s))
-	end
-
-	def recv(msg)
-		@current_proc_mtx.synchronize do 
-			if @current_proc.nil?
-				@log.debug log_str("dropped msg: #{msg.inspect}")
-			else
-				@current_proc.recv(Msg::parse(Base64::decode64(msg)))
-			end
-		end
-	end
-
-	def recv_err(err)
-		@current_proc_mtx.synchronize do 
-			if @current_proc.nil?
-				@log.debug log_str("dropped err: #{err.inspect}")
-			else
-				#@log.debug log_str("recv err: #{err.inspect}")
-				@current_proc.recv(Msg.new(
-					:op_code => Msg::OpCode::RESET,
-					:err => err.msg,
-					:err_type => err.err_type
-				))
-			end
-		end
 	end
 
 end

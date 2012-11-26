@@ -8,6 +8,7 @@ $: << File.join(THIS_DIR, "..")
 require 'netbat/datagram'
 require 'netbat/datagram/xmpp_socket'
 require 'netbat/client_ctx'
+require 'netbat/server_ctx'
 require 'netbat/protobuf/netbat.pb'
 require 'netbat/log'
 
@@ -161,29 +162,31 @@ module Netbat
 			return sock
 		end
 
-		class ServerCtx < Datagram::Connection
-			#probably will end up being a state machine
-		end
-
 		def cmd_listen
 			@log.debug "cmd_listen"
 			@log.debug Netbat::thread_list()
 			sock = bind_datagram()
 			@log.debug Netbat::thread_list()
+
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
+			local_info.freeze
+
 			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg|
 				@log.info "new connection from #{peer.to_s}"
-				ServerCtx.new(sock, peer)
+				ctx = ServerCtx.new(sock, peer, local_info)
+				ctx.recv(first_msg)
+
+				ctx
 			end
 			
 			dmx.demux do |ctx, msg|
 				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
-				
-				#process message
 
-				#update ctx
-
-				#respond
-				#dmx.socket.send_msg(
+				if msg.is_a?(Datagra::Socket::Error)
+					ctx.recv_err(msg)
+				else
+					ctx.recv(msg)
+				end
 			end
 		end
 
