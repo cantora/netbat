@@ -16,6 +16,10 @@ module Netbat
 		end.join(", ")
 	end
 
+	def self.exception_str(msg, e)
+		return "#{msg}: (#{e.class.inspect}) #{e.message}\n#{e.backtrace.join("\n\t")}"
+	end
+
 	LOG = Logger.new($stderr)
 	LOG.formatter = proc do |sev, t, pname, msg|
 		sprintf(

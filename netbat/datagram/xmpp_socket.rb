@@ -12,33 +12,41 @@ class XMPPSocket < Socket
 
 	class XMPPAddr < Addr
 
-		def initialize(val)
-			super(val.to_s)
-			Netbat::assert_str(@val)
-			@uri = URI.parse(@val)
+		attr_reader :node, :domain, :resource
+		
+		def initialize(node, domain, resource)
+			@node = node
+			@domain = domain
+			@resource = resource.gsub(/^\/*/, "")
+
+			{:node => @node, :domain => @domain}.each do |k,v|
+				if !v.is_a?(String) || v.empty?
+					raise "invalid #{k}: #{v.inspect}"
+				end
+			end
+
+			raise "invalid resource: #{@resource.inspect}" if !@resource.is_a?(String)		
 		end
 		
 		def to_s
-			return "#{@uri.user}@#{@uri.host}/#{@uri.path}"
+			s = "#{@node}@#{@domain}"
+			if @resource.size > 0
+				s << "/" 
+				s << @resource
+			end
+
+			return s
 		end
 
-		def domain
-			return @uri.host
-		end
-
-		def node
-			return @uri.user
-		end
-
-		def resource
-			return @uri.path
+		def self.from_uri(uri)
+			return self.new(uri.user, uri.host, uri.path)
 		end
 	end
 
 	def initialize(uri)
 		Netbat::assert_uri(uri)
 
-		Blather.logger.level = Logger::DEBUG
+		#Blather.logger.level = Logger::DEBUG
 		user = uri.user
 		@password = uri.password
 		domain = uri.host
@@ -47,13 +55,17 @@ class XMPPSocket < Socket
 			raise ArgumentError.new, "invalid #{k} in uri: #{v.inspect}" if v.nil? || v.empty?
 		end
 
-		@addr = XMPPAddr.new("xmpp://#{user}@#{domain}/#{resource}")
+		@addr = XMPPAddr.new(user, domain, resource)
 		init_client()
 		@thr = nil
 		@log = Netbat::LOG
 
+		@recv_handler = nil
+		@bind_handler = nil
+		@close_hander = nil
 	end
 
+=begin
 	def client_handler(*args, &bloc)
 		#blather doesnt handle the case where 
 		#we clear a handler when it doesnt exist yet, and i 
@@ -64,17 +76,48 @@ class XMPPSocket < Socket
 		@client.clear_handlers(*args)
 		@client.register_handler(*args, &bloc)
 	end
+=end
 
 	def init_client
 		@client = Blather::Client.setup(self.xmpp_id, @password)
-		client_handler :subscription, :request? do |s|
+		@client.register_handler :subscription, :request? do |s|
 			@log.debug("subsc(#{self.xmpp_id}):#{s.inspect}")
 			@client.write s.approve!
 		end
 
-		on_recv {}
-		on_bind {}
-		on_close {}
+		@client.register_handler :message, :normal?, :body do |m|
+			@log.debug("recv(#{self.xmpp_id}):#{m.from.inspect}, #{m.body.inspect}")
+			if !@recv_handler.nil?
+				@recv_handler.call(
+					m.body, 
+					XMPPAddr.from_uri(URI.parse("xmpp://#{m.from}") )
+				)
+			end
+		end
+
+		@sent_signal = false
+		@client.register_handler(:ready) do
+			@log.debug("bound(#{self.xmpp_id})")
+			if @sent_signal
+				raise "already sent signal!"
+			end
+
+			@bind_mutex.synchronize do
+				@bind_cv.signal
+			end
+			
+			@client.status = :available
+			if !@bind_handler.nil?
+				@bind_handler.call()
+			end
+		end
+
+		@client.register_handler(:disconnected) do
+			@log.debug("closed(#{self.xmpp_id})")
+			if !@close_handler.nil?
+				@close_handler.call()
+			end
+		end
 	end
 
 	def xmpp_id
@@ -82,13 +125,7 @@ class XMPPSocket < Socket
 	end
 
 	def on_recv(&bloc)
-		client_handler(:message) do |m|
-			@log.debug("recv(#{self.xmpp_id}):#{m.from.inspect}, #{m.body.inspect}")
-			bloc.call(
-				m.body, 
-				XMPPAddr.new(m.from)
-			)
-		end
+		@recv_handler = bloc
 	end
 
 	def on_subscription(&bloc)
@@ -102,6 +139,7 @@ class XMPPSocket < Socket
 	def bind
 		raise "endpoint is already bound!" if !@thr.nil?
 
+		ready = false
 		@thr = Thread.new do
 			Thread.current.abort_on_exception = true
 			@log.debug "xmpp socket start client"
@@ -110,19 +148,17 @@ class XMPPSocket < Socket
 			}
 		end
 
-		loop do
-			break if @client.connected?
+		@bind_cv = ConditionVariable.new
+		@bind_mutex = Mutex.new
+		@bind_mutex.synchronize do
+			@bind_cv.wait(@bind_mutex)
 		end
-		sleep(5)
+
 		return
 	end
 
 	def on_bind(&bloc)
-		client_handler(:ready) do
-			@log.debug("bound(#{self.xmpp_id})")
-			@client.status = :available
-			bloc.call()
-		end
+		@bind_handler = bloc
 	end
 
 	def close
@@ -145,14 +181,11 @@ class XMPPSocket < Socket
 	end
 
 	def on_close(&bloc)
-		client_handler(:disconnected) do
-			@log.debug("closed(#{self.xmpp_id})")
-			bloc.call()
-		end
+		@close_handler = bloc
 	end
 
-	def send(addr, msg)
-		@log.debug "send #{addr.to_s}: #{msg.inspect}"
+	def send_msg(addr, msg)
+		@log.debug "send_msg #{addr.to_s}: #{msg.inspect}"
 		@client.write Blather::Stanza::Message.new(addr.to_s, msg, :normal)
 	end
 

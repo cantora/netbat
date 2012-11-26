@@ -7,10 +7,14 @@ $: << File.join(THIS_DIR, "..")
 
 require 'netbat/datagram'
 require 'netbat/datagram/xmpp_socket'
+require 'netbat/client_ctx'
+require 'netbat/protobuf/netbat.pb'
+require 'netbat/log'
 
 require 'optparse'
 require 'uri'
 require 'logger'
+
 
 module Netbat
 	
@@ -51,6 +55,12 @@ module Netbat
 					options[:side_band] = sb
 				end
 
+				host_types = Netbat::Msg::HostType.constants.map {|x| x.to_s}
+				t_desc = "type of host: #{host_types.join(", ")}"
+				opts.on('-t', '--host-type TYPE', host_types, t_desc) do |ht|
+					options[:host_type] = ht.to_sym
+				end
+
 				opts.separator ""
 				opts.separator "xmpp options:"
 				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
@@ -83,6 +93,10 @@ module Netbat
 					if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
 						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}" 
 					end
+				end
+
+				if !Netbat::Msg::HostType.constants.include?(options[:host_type])
+					raise "must provide valid host type. got: #{options[:host_type].inspect}"
 				end
 
 			rescue Exception => e
@@ -125,7 +139,7 @@ module Netbat
 		def connect_addr(dst_addr)
 			case @options[:sb_type]
 			when :xmpp
-				Datagram::XMPPSocket::XMPPAddr.new(URI.parse(dst_addr))
+				Datagram::XMPPSocket::XMPPAddr.from_uri(URI.parse(dst_addr) )
 			else
 				raise "invalid side band type: #{@options[:sb_type].inspect}"
 			end
@@ -147,7 +161,6 @@ module Netbat
 			return sock
 		end
 
-		class ClientCtx < Datagram::Connection; end
 		class ServerCtx < Datagram::Connection
 			#probably will end up being a state machine
 		end
@@ -170,31 +183,34 @@ module Netbat
 				#update ctx
 
 				#respond
-				#dmx.socket.send(
-			end
-		end
-
-		def init_ctx(ctx)
-			
-			case @options[:sb_type]
-			when :xmpp
-				if !@options[:listen] && @options[:xmpp_sub]
-					ctx.socket.subscribe(ctx.peer_addr)
-				end
+				#dmx.socket.send_msg(
 			end
 		end
 
 		def cmd_connect
 			@log.debug "cmd_connect"
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
 
 			sock = bind_datagram()
 			peer_addr = connect_addr(@options[:dst_addr])
-			ctx = ClientCtx.new(sock, peer_addr)
-			#init_ctx(ctx)
-						
-			loop do 
-				x = readline()
-				ctx.send(x)
+			ctx = ClientCtx.new(sock, peer_addr, local_info)
+			
+			Datagram::filter(sock, peer_addr) do |msg|
+				begin
+					ctx.recv(msg)
+				rescue Exception => e
+					$stderr.puts Netbat::exception_str("fatal exception in recv handler: #{e.inspect}", e)
+					exit!(1)
+				end
+			end
+
+			begin
+				ctx.loop()
+			rescue ProtoProc::Timeout => e
+				$stderr.puts "peer timeout"
+			rescue Exception => e
+				$stderr.puts Netbat::exception_str("fatal exception in run loop", e)
+				exit!(1)
 			end
 		end
 

@@ -1,0 +1,28 @@
+package Netbat;
+
+message Addr {
+	required int32 	ip 		= 1;
+	required int32	port	= 2;
+}
+
+message Msg {
+	enum OpCode {
+		INFO		= 1;
+		RESET		= 2;
+		LOCAL		= 3;
+
+		BF0			= 65;
+	}
+
+	enum HostType {
+		OPEN 		= 1;
+		FILTER	 	= 2;
+		NAT			= 3;
+	}
+
+	optional OpCode 	op_code				= 1;
+	repeated OpCode 	supported_ops 		= 2;
+	optional HostType 	host_type 			= 3;
+	optional string 	err 				= 4;
+	optional Addr		addr				= 5;
+}

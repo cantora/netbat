@@ -20,11 +20,25 @@ class Connection
 		@peer_seq += 1
 	end
 
-	def send(msg)
-		@socket.send(peer_addr, msg)
+	def send_msg(msg)
+		@socket.send_msg(peer_addr, msg)
 		inc_seq()
 	end
 end
+
+def self.filter(dg_socket, peer_addr, &bloc)
+	if !dg_socket.is_a?(Socket)
+		raise ArgumentError.new, "dg_socket must be a Socket. got: #{dg_socket.inspect}"
+	end
+
+	dg_socket.on_recv do |msg, from_addr|
+		if from_addr == peer_addr
+			bloc.call(msg)
+		end
+	end
+	
+end
+
 
 class Demuxer
 

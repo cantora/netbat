@@ -7,24 +7,19 @@ module Netbat::Datagram
 class Socket
 
 	class Addr
-		attr_reader :val
-
-		def initialize(val)
-			@val = val
-		end
 
 		def to_s
 			raise "not implemented"
 		end
 
 		def hash
-			hsh = @val.hash
+			hsh = self.to_s().hash
 			return hsh
 		end
 
 		def eql?(obj)
 			return false if !obj.is_a?(self.class)
-			return @val.eql?(obj.val)
+			return self.to_s() == obj.to_s()
 		end
 
 		def ==(obj)
@@ -60,7 +55,7 @@ class Socket
 		raise "not implemented"
 	end
 
-	def send(addr, msg)
+	def send_msg(addr, msg)
 		raise "not implemented"
 	end
 end
