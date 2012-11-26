@@ -20,13 +20,11 @@ class XMPPSocket < Socket
 			@domain = domain
 			@resource = resource.gsub(/^\/*/, "")
 
-			{:node => @node, :domain => @domain}.each do |k,v|
+			{:node => @node, :domain => @domain, :resource => @resource}.each do |k,v|
 				if !v.is_a?(String) || v.empty?
-					raise "invalid #{k}: #{v.inspect}"
+					raise ArgumentError.new, "invalid #{k}: #{v.inspect}"
 				end
 			end
-
-			raise "invalid resource: #{@resource.inspect}" if !@resource.is_a?(String)		
 		end
 		
 		def to_s
@@ -42,21 +40,28 @@ class XMPPSocket < Socket
 		def self.from_uri(uri)
 			return self.new(uri.user, uri.host, uri.path)
 		end
+
+		def self.uri_to_addr_and_auth(uri)
+			Netbat::assert_uri(uri)
+	
+			user = uri.user
+			password = uri.password
+			domain = uri.host
+			resource = uri.path
+			{:user => user, :password => password, :domain => domain}.each do |k,v|
+				raise ArgumentError.new, "invalid #{k} in uri: #{v.inspect}" if v.nil? || v.empty?
+			end
+	
+			addr = self.new(user, domain, resource)
+			return addr, password
+		end
 	end
 
-	def initialize(uri)
-		Netbat::assert_uri(uri)
-
+	def initialize(addr, password)
 		#Blather.logger.level = Logger::DEBUG
-		user = uri.user
-		@password = uri.password
-		domain = uri.host
-		resource = uri.path
-		{:user => user, :password => @password, :domain => domain}.each do |k,v|
-			raise ArgumentError.new, "invalid #{k} in uri: #{v.inspect}" if v.nil? || v.empty?
-		end
-
-		@addr = XMPPAddr.new(user, domain, resource)
+		
+		@addr = addr
+		@password = password
 		init_client()
 		@thr = nil
 		@log = Netbat::LOG

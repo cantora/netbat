@@ -83,16 +83,27 @@ module Netbat
 			
 			begin
 				optparse.parse!(argv)
-
+				
 				options[:src_addr] = argv.shift
 				if options[:src_addr].nil? || options[:src_addr].strip.empty?
 					raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
 				end
-				
+				options[:src_addr], options[:src_auth] = begin
+					src_addr_and_auth(options, options[:src_addr])
+				rescue ArgumentError => e
+					raise "invalid source address: #{e.message}"
+				end
+
 				if options[:listen].nil?
 					options[:dst_addr] = argv.shift
 					if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
-						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}" 
+						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}"
+					end
+
+					options[:dst_addr] = begin
+						dst_addr(options, options[:dst_addr])
+					rescue ArgumentError => e
+						raise "invalid destination address: #{e.message}"
 					end
 				end
 
@@ -109,6 +120,28 @@ module Netbat
 			
 			return options
 		end #self.parse
+
+		def self.src_addr_and_auth(options, uri_str)
+			u = URI.parse(uri_str)
+
+			case options[:sb_type]
+			when :xmpp
+				return Datagram::XMPPSocket::XMPPAddr.uri_to_addr_and_auth(u)
+			else
+				raise "shouldnt get here"				
+			end
+		end
+
+		def self.dst_addr(options, uri_str)
+			u = URI.parse(uri_str)
+
+			case options[:sb_type]
+			when :xmpp
+				return Datagram::XMPPSocket::XMPPAddr.from_uri(u)
+			else
+				raise "shouldnt get here"				
+			end
+		end
 
 		def initialize(options)
 			@options = options
@@ -146,10 +179,10 @@ module Netbat
 			end
 		end
 
-		def bind_datagram
+		def bind_datagram(bind_addr, auth)
 			sock = case @options[:sb_type]
 			when :xmpp
-				Datagram::XMPPSocket.new(URI.parse(@options[:src_addr]))
+				Datagram::XMPPSocket.new(bind_addr, auth)
 			else
 				raise "invalid side band type: #{@options[:sb_type].inspect}"
 			end
@@ -165,7 +198,7 @@ module Netbat
 		def cmd_listen
 			@log.debug "cmd_listen"
 			@log.debug Netbat::thread_list()
-			sock = bind_datagram()
+			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			@log.debug Netbat::thread_list()
 
 			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
@@ -198,7 +231,7 @@ module Netbat
 			@log.debug "cmd_connect"
 			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
 
-			sock = bind_datagram()
+			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			peer_addr = connect_addr(@options[:dst_addr])
 			ctx = ClientCtx.new(sock, peer_addr, local_info)
 			
