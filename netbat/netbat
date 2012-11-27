@@ -144,7 +144,9 @@ module Netbat
 
 			case options[:sb_type]
 			when :xmpp
-				return Datagram::XMPPSocket::XMPPAddr.uri_to_addr_and_auth(u)
+				addr, auth = Datagram::XMPPSocket::XMPPAddr.uri_to_addr_and_auth(u)
+				raise ArgumentError.new, "empty resource" if addr.resource.empty?
+				return addr, auth
 			else
 				raise "shouldnt get here"				
 			end
@@ -155,7 +157,9 @@ module Netbat
 
 			case options[:sb_type]
 			when :xmpp
-				return Datagram::XMPPSocket::XMPPAddr.from_uri(u)
+				addr = Datagram::XMPPSocket::XMPPAddr.from_uri(u)
+				raise ArgumentError.new, "empty resource" if addr.resource.empty?
+				return addr
 			else
 				raise "shouldnt get here"				
 			end

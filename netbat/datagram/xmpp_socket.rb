@@ -18,9 +18,11 @@ class XMPPSocket < Socket
 		def initialize(node, domain, resource)
 			@node = node
 			@domain = domain
+
+			raise ArgumentError.new, "nil resource" if resource.nil?
 			@resource = resource.gsub(/^\/*/, "")
 
-			{:node => @node, :domain => @domain, :resource => @resource}.each do |k,v|
+			{:node => @node, :domain => @domain}.each do |k,v|
 				if !v.is_a?(String) || v.empty?
 					raise ArgumentError.new, "invalid #{k}: #{v.inspect}"
 				end
