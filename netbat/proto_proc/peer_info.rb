@@ -58,7 +58,7 @@ class PeerInfo < ProtoProcDesc
 					:supported_ops => local_info.supported_ops
 				))
 				
-				success(nil)
+				success(true)
 			else
 				proto_error("ignoring unexpected message: #{msg.inspect}")
 			end

@@ -1,17 +1,18 @@
 require 'netbat/proto_proc'
-require 'netbat/protobuf/netbat.pb'
+require 'netbat/msg'
 
+require 'timeout'
 require 'socket'
 
 module Netbat
 
 #simplest firewall hole punch with no TCP state trickery
-#should not require super user privs on either side
+#does not require super user privs on either side
 class BothFiltered0 < ProtoProcDesc
 	
 	def self.supports?(my_type, peer_type)
-		if my_type == Punch::HostType::Filter \
-				&& peer_type == Punch::HostType::Filter
+		if my_type == Msg::HostType::Filter \
+				&& peer_type == Msg::HostType::Filter
 			return true
 		end
 
@@ -20,7 +21,7 @@ class BothFiltered0 < ProtoProcDesc
 
 	register(self)
 
-	OPCODE = Netbat::Punch::OpCode::BF0
+	OPCODE = Msg::OpCode::BF0
 
 	def self.next_port
 		offset = 1024
@@ -30,12 +31,13 @@ class BothFiltered0 < ProtoProcDesc
 	def self.client()
 		pproc = ProtoProc.new
 
-		pproc.init do 
-			send_msg(Netbat::Punch.new(
+		pproc.init do
+			@src_port = next_port()
+			send_msg(Msg.new(
 				:op_code =>	OPCODE,
-				:addr => Netbat::Addr.new(
-					:ip => Netbat::ip_addr_to_int(@local_info[:ip]),
-					:port => next_port()
+				:addr => Msg::Addr.new(
+					:ip => @local_info.ipv4.to_i,
+					:port => @src_port
 				)
 			))
 
@@ -43,13 +45,22 @@ class BothFiltered0 < ProtoProcDesc
 		end
 
 		pproc.on_recv :init do |msg|
-			if check_msg(:opcode => OPCODE, :ip, :port) 
-				begin
-					tcpsock = TCPSocket.new(Netbat::int_to_ip_addr(msg.ip), msg.port)
-					success(tcpsock)
-				rescue Errno::ECONNREFUSED => e
-					failure(e.inspect)
-				end	
+			if msg.check(:opcode => OPCODE)
+				if msg.ip == 0 || !(1025..(2**16-1)).include?(msg.port)
+					proto_error("invalid ip or port: #{msg.inspect}")
+				else
+					begin
+						tcpsock = Timeout.timeout(15) {TCPSocket.new(
+							IPaddr::from_int(msg.ip), 
+							msg.port, 
+							"0.0.0.0",
+							@src_port
+						)}
+						success(tcpsock)
+					rescue Errno::ECONNREFUSED => e
+						failure(e.inspect)
+					end
+				end
 			else
 				proto_error("unexpected response: #{msg.inspect}")
 			end
