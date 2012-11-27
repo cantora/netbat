@@ -63,7 +63,6 @@ class ConnectionCtx < Connection
 	end
 
 	def proc_recv(decoded_msg)
-		puts "cp: #{@current_proc.nil?}"
 		current_proc_lock do 
 			if @current_proc.nil?
 				@log.debug log_str("dropped msg: #{msg.inspect}")
@@ -75,7 +74,7 @@ class ConnectionCtx < Connection
 
 	def decode_err(err)
 		return Netbat::Msg.new(
-			:op_code => Msg::OpCode::RESET,
+			:op_code => Netbat::Msg::OpCode::RESET,
 			:err => err.msg,
 			:err_type => err.err_type
 		)
@@ -92,7 +91,7 @@ class ConnectionCtx < Connection
 				@log.debug log_str("dropped err: #{err.inspect}")
 			else
 				#@log.debug log_str("recv err: #{err.inspect}")
-				@current_proc.recv()
+				@current_proc.recv(err)
 			end
 		end
 	end
@@ -123,7 +122,7 @@ class Filter
 
 	def on_err(&bloc)
 		@socket.on_err do |err, from_addr|
-			if from_addr == @peer
+			if from_addr.node == @peer.node && from_addr.domain == @peer.domain
 				bloc.call(err)
 			else
 				@log.debug "filtered out error from: #{from_addr.inspect}"
@@ -181,10 +180,12 @@ class Demuxer
 			@log.debug Netbat::thread_list()
 			@active_mtx.synchronize do
 				@log.debug("active: #{@active.keys.inspect}")
-				if !@active.has_key?(from_addr)
-					@log.info "ignore error msg from non active peer: #{from_addr.inspect}"
-				else
-					bloc.call(@active[from_addr], err)
+				prefix = "#{from_addr.node}@#{from_addr.domain}"
+				reg_prefix = /^#{Regexp::escape(prefix)}/
+
+				@active.each do |addr, ctx|
+					next if addr.to_s.match(reg_prefix).nil?
+					bloc.call(ctx, err)
 				end
 			end
 		end
