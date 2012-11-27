@@ -50,7 +50,7 @@ module Public
 
 		headers, body = output.split("\r\n\r\n", 2)
 		
-		if !headers.match(/^HTTP\/1\.1\s+200\s+OK/)
+		if headers.match(/^HTTP\/1\.(?:1|0)\s+200\s+OK/).nil?
 			raise DiscoveryException.new, "http error: #{output}"
 		end
 
