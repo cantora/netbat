@@ -1,4 +1,19 @@
 require 'netbat/protobuf/netbat.pb'
+require 'ipaddr'
+
+class IPAddr
+	
+	def self.ipv4_from_int(n)
+		if n < 0
+			raise ArgumentError.new, "cant convert negative integer into IP address"
+		elsif n > (2**32-1)
+			raise ArgumentError.new, "number too large to represent ipv4 address"
+		else
+			return [n].pack("N")
+		end
+	end
+
+end
 
 module Netbat
 
@@ -19,6 +34,7 @@ class Msg
 
 		return true
 	end
+
 end
 
 end
