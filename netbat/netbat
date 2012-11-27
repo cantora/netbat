@@ -11,6 +11,7 @@ require 'netbat/client_ctx'
 require 'netbat/server_ctx'
 require 'netbat/protobuf/netbat.pb'
 require 'netbat/log'
+require 'netbat/public'
 
 require 'optparse'
 require 'uri'
@@ -62,6 +63,15 @@ module Netbat
 					options[:host_type] = ht.to_sym
 				end
 
+				opts.on("--v4", "attempt to discover public ipv4 address and exit.") do |bul|
+					options[:v4_addr] = bul
+				end
+	
+				v4port_desc = "attempt to discover public ipv4 address and example public source port, then exit."
+				opts.on("--v4-port PORT", Integer, v4port_desc) do |port|
+					options[:v4_port] = port
+				end
+
 				opts.separator ""
 				opts.separator "xmpp options:"
 				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
@@ -84,32 +94,40 @@ module Netbat
 			begin
 				optparse.parse!(argv)
 				
-				options[:src_addr] = argv.shift
-				if options[:src_addr].nil? || options[:src_addr].strip.empty?
-					raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
-				end
-				options[:src_addr], options[:src_auth] = begin
-					src_addr_and_auth(options, options[:src_addr])
-				rescue ArgumentError => e
-					raise "invalid source address: #{e.message}"
-				end
-
-				if options[:listen].nil?
-					options[:dst_addr] = argv.shift
-					if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
-						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}"
+				if !options[:v4_addr] && !options.include?(:v4_port)
+					options[:src_addr] = argv.shift
+					if options[:src_addr].nil? || options[:src_addr].strip.empty?
+						raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
 					end
-
-					options[:dst_addr] = begin
-						dst_addr(options, options[:dst_addr])
+					options[:src_addr], options[:src_auth] = begin
+						src_addr_and_auth(options, options[:src_addr])
 					rescue ArgumentError => e
-						raise "invalid destination address: #{e.message}"
+						raise "invalid source address: #{e.message}"
 					end
-				end
-
-				if !Netbat::Msg::HostType.constants.include?(options[:host_type])
-					raise "must provide valid host type. got: #{options[:host_type].inspect}"
-				end
+	
+					if options[:listen].nil?
+						options[:dst_addr] = argv.shift
+						if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
+							raise "invalid DST-ADDR: #{options[:dst_addr].inspect}"
+						end
+	
+						options[:dst_addr] = begin
+							dst_addr(options, options[:dst_addr])
+						rescue ArgumentError => e
+							raise "invalid destination address: #{e.message}"
+						end
+					end
+	
+					if !Netbat::Msg::HostType.constants.include?(options[:host_type])
+						raise "must provide valid host type. got: #{options[:host_type].inspect}"
+					end
+				else #public address discovery
+					if options.include?(:v4_port)
+						if !(1025..(2**16-1)).include?(options[:v4_port])
+							raise "invalid port number: #{@options[:v4_port].inspect}"
+						end
+					end
+				end 
 
 			rescue Exception => e
 				puts e.message
@@ -162,8 +180,23 @@ module Netbat
 
 		end
 		
+		def public_addr()
+			begin 
+				if @options[:v4_port]
+					addr, port = Public::ipv4_port_test(@options[:v4_port])
+					puts "*:#{@options[:v4_port]} => #{addr}:#{port}"
+				else
+					puts Public::ipv4()
+				end
+			rescue Public::DiscoveryException => e
+				$stderr.puts e.message
+			end
+		end
+
 		def run()
-			if @options[:listen]
+			if @options[:v4_addr] || @options.include?(:v4_port)
+				public_addr()	
+			elsif @options[:listen]
 				cmd_listen
 			else
 				cmd_connect
