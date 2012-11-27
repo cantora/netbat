@@ -170,15 +170,6 @@ module Netbat
 			end
 		end
 
-		def connect_addr(dst_addr)
-			case @options[:sb_type]
-			when :xmpp
-				Datagram::XMPPSocket::XMPPAddr.from_uri(URI.parse(dst_addr) )
-			else
-				raise "invalid side band type: #{@options[:sb_type].inspect}"
-			end
-		end
-
 		def bind_datagram(bind_addr, auth)
 			sock = case @options[:sb_type]
 			when :xmpp
@@ -232,7 +223,7 @@ module Netbat
 			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
 
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
-			peer_addr = connect_addr(@options[:dst_addr])
+			peer_addr = @options[:dst_addr]
 			ctx = ClientCtx.new(sock, peer_addr, local_info)
 			
 			filter = Datagram::Filter.new(sock, peer_addr) 
