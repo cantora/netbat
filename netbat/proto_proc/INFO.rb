@@ -1,10 +1,10 @@
 require 'netbat/proto_proc'
-require 'netbat/local_info'
+require 'netbat/peer_info'
 require 'netbat/msg'
 
 module Netbat
 
-class PeerInfo < ProtoProcDesc
+class INFO < ProtoProcDesc
 
 	register(self)
 
@@ -31,7 +31,7 @@ class PeerInfo < ProtoProcDesc
 				end
 			elsif msg.check(:op_code => OPCODE)
 				success(
-					LocalInfo.new(
+					PeerInfo.new(
 						msg.host_type,
 						msg.supported_ops
 					)

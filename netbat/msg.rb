@@ -1,4 +1,6 @@
 require 'netbat/protobuf/netbat.pb'
+require 'netbat/peer_info'
+
 require 'ipaddr'
 
 class IPAddr
@@ -9,7 +11,7 @@ class IPAddr
 		elsif n > (2**32-1)
 			raise ArgumentError.new, "number too large to represent ipv4 address"
 		else
-			return [n].pack("N")
+			return IPAddr.new_ntoh([n].pack("N"))
 		end
 	end
 
@@ -18,7 +20,7 @@ end
 module Netbat
 
 class Msg
-	
+
 	def error?
 		return send(:err_type) != ErrType::NONE
 	end

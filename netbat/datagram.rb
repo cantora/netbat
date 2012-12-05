@@ -65,7 +65,7 @@ class ConnectionCtx < Connection
 	def proc_recv(decoded_msg)
 		current_proc_lock do 
 			if @current_proc.nil?
-				@log.debug log_str("dropped msg: #{msg.inspect}")
+				@log.debug log_str("dropped msg: #{decoded_msg.inspect}")
 			else
 				@current_proc.recv(decoded_msg)
 			end

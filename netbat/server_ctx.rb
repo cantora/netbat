@@ -1,8 +1,9 @@
 require 'netbat/datagram'
+require 'netbat/proto_proc'
 
 require 'base64'
 
-['peer_info'].each do |fname|
+['INFO', 'BF0'].each do |fname|
 	require File.join('netbat', 'proto_proc', fname)
 end
 
@@ -11,7 +12,8 @@ module Netbat
 class ServerCtx < Datagram::ConnectionCtx
 
 	OPCODE_TO_PROC = {
-		Msg::OpCode::INFO => PeerInfo.method(:server)
+		Msg::OpCode::INFO => INFO.method(:server),
+		Msg::OpCode::BF0 => BF0.method(:server)
 	}
 
 	#gets called at regular intervals to provide cycles for internal maintenance
@@ -22,8 +24,8 @@ class ServerCtx < Datagram::ConnectionCtx
 					if !@current_proc.status().nil? #procedure is finished
 						@current_proc = nil
 					end
-				rescue ProtoProcException => e
-					@log.warn "procedure #{@current_proc.inspect} raised exception: #{e.inspect}"
+				rescue ProtoProc::ProtoProcException => e
+					@log.warn "procedure raised exception: #{e.inspect}"
 					@current_proc = nil
 				end
 			end

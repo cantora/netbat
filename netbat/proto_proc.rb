@@ -4,6 +4,10 @@ class ProtoProcDesc
 
 	@@procedures = []
 
+	def self.procedures
+		return @@procedures
+	end
+
 	def self.register(klass)
 		@@procedures << klass
 	end
