@@ -41,3 +41,9 @@ type: filt|open|nat      |
 							  connect(y.y.y.y:M_i)
 							
 							if connected: stop
+
+
+
+
+
+

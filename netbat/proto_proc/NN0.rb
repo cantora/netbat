@@ -67,16 +67,16 @@ class NN0 < PunchProcDesc
 					n.l4 = Racket::L4::TCP.new
 					n.l4.src_port = @src_port
 					n.l4.dst_port = msg.addr.port
-					n.l4.seq = rand(2**32)
+					n.l4.seq = msg.tcp_ack + 1 #rand(2**32)
 					n.l4.ack = msg.tcp_seq + 1
-					n.l4.flag_syn = 1
+					#n.l4.flag_syn = 1
 					n.l4.flag_ack = 1
 					n.l4.window = 4445
 					
 					n.l4.fix!(n.l3.src_ip, n.l3.dst_ip, "")
 					amt = n.sendpacket
 
-					log.debug "sent #{amt} bytes"
+					@log.debug "sent #{amt} bytes"
 
 					failure("asdfasdf")
 				end
@@ -115,13 +115,15 @@ class NN0 < PunchProcDesc
 				n.l4.src_port = src_port
 				n.l4.dst_port = msg.addr.port
 				n.l4.seq = rand(2**32)
+				n.l4.ack = rand(2**32)
 				n.l4.flag_syn = 1
+				n.l4.flag_ack = 1
 				n.l4.window = 4445
 				
 				n.l4.fix!(n.l3.src_ip, n.l3.dst_ip, "")
 				amt = n.sendpacket
 
-				log.debug "sent #{amt} bytes"
+				@log.debug "sent #{amt} bytes"
 
 				send_msg(Msg.new(
 					:op_code => OPCODE,
@@ -129,7 +131,8 @@ class NN0 < PunchProcDesc
 						:ip => local_info.ipv4.to_i,
 						:port => src_port,
 					),
-					:tcp_seq => n.l4.seq
+					:tcp_seq => n.l4.seq,
+					:tcp_ack => n.l4.ack
 				))
 
 				failure("blah")
