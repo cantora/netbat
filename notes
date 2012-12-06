@@ -1,3 +1,9 @@
+resources:
+	http://www.tenouk.com/Module43a.html
+	http://sock-raw.org/papers/sock_raw
+	http://www.secdev.org/
+
+
   C                      |         S
 -------------------------|-------------
 info?                    |  type: 	filtered|open|nat

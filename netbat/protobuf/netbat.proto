@@ -12,6 +12,7 @@ message Msg {
 		LOCAL		= 3;
 
 		BF0			= 65;
+		NN0			= 66;
 	}
 
 	enum HostType {
@@ -32,4 +33,5 @@ message Msg {
 	optional string 	err 				= 4;
 	optional ErrType	err_type			= 5;
 	optional Addr		addr				= 6;
+	optional int32		tcp_seq				= 7;
 }

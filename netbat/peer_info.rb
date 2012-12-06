@@ -1,5 +1,6 @@
 require 'netbat/msg'
 require 'netbat/public'
+require 'system/getifaddrs'
 
 module Netbat
 
@@ -24,11 +25,13 @@ end
 
 class LocalInfo
 
-	attr_reader :ipv4
+	attr_reader :ipv4, :ifc, ifc_ipv4
 
 	def initialize(host_type, supported_ops)
 		@my_info = PeerInfo.make(host_type, supported_ops)
 		@ipv4 = self.class::find_public_addr()
+		@ifc = :eth0
+		@ifc_ipv4 = System.get_ifaddrs[@ifc]
 	end
 	
 	def host_type

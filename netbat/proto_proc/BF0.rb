@@ -53,6 +53,8 @@ class BF0 < PunchProcDesc
 				else
 					begin
 						addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
+						@log.debug "connect to #{addr}:#{msg.addr.port}"
+
 						tcpsock = Timeout.timeout(15) {TCPSocket.new(
 							addr, 
 							msg.addr.port, 
@@ -83,12 +85,13 @@ class BF0 < PunchProcDesc
 				proto_error("error: (#{msg.err_type.inspect}) #{msg.err.inspect}")
 			elsif msg.check(:op_code => OPCODE)
 				src_port = pdesc.next_port()
+				addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
+				@log.debug "syn to #{addr}:#{msg.addr.port} from #{src_port}"
 
 				cx_thr = Thread.new do
 					Thread.current.abort_on_exception = true
 
 					begin
-						addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
 						TCPSocket.new(
 							addr,
 							msg.addr.port, 
