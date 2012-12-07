@@ -13,6 +13,7 @@ message Msg {
 
 		BF0			= 65;
 		NN0			= 66;
+		NN1			= 67;
 	}
 
 	enum HostType {

@@ -10,7 +10,7 @@ module Netbat
 
 #initial attempt at raw tcp socket NAT
 #hole punching
-class NN0 < PunchProcDesc
+class NN1 < PunchProcDesc
 	
 	def self.supports?(my_type, peer_type)
 		s = Set.new [Msg::HostType::FILTER, Msg::HostType::NAT]
@@ -24,7 +24,7 @@ class NN0 < PunchProcDesc
 
 	register(self)
 
-	OPCODE = Msg::OpCode::NN0
+	OPCODE = Msg::OpCode::NN1
 
 	def self.next_port
 		offset = 1024
@@ -56,27 +56,9 @@ class NN0 < PunchProcDesc
 					addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
 					@log.debug "connect to #{addr}:#{msg.addr.port}"
 
-					n = Racket::Racket.new
-					n.iface = local_info.ifc.to_s
-					
-					n.l3 = Racket::L3::IPv4.new
-					n.l3.src_ip = local_info.ifc_ipv4
-					n.l3.dst_ip = addr.to_s
-					n.l3.protocol = 0x6
-					n.l3.ttl = 255
-					n.l4 = Racket::L4::TCP.new
-					n.l4.src_port = @src_port
-					n.l4.dst_port = msg.addr.port
-					n.l4.seq = rand(2**32) #msg.tcp_ack + 1 #
-					n.l4.ack = msg.tcp_seq + 1
-					n.l4.flag_syn = 1
-					n.l4.flag_ack = 1
-					n.l4.window = 4445
-					
-					n.l4.fix!(n.l3.src_ip, n.l3.dst_ip, "")
-					amt = n.sendpacket
-
-					@log.debug "sent #{amt} bytes"
+					u = UDPSocket.new
+					u.bind("0.0.0.0", @src_port)
+					u.send("client", 0, addr, msg.addr.port)
 
 					failure("asdfasdf")
 				end
@@ -101,30 +83,11 @@ class NN0 < PunchProcDesc
 				src_port = pdesc.next_port()
 				addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
 
-				@log.debug "syn to #{addr}:#{msg.addr.port}"
-
-				n = Racket::Racket.new
-				n.iface = local_info.ifc.to_s
-				
-				n.l3 = Racket::L3::IPv4.new
-				n.l3.src_ip = local_info.ifc_ipv4
-				n.l3.dst_ip = addr.to_s
-				n.l3.protocol = 0x6
-				n.l3.ttl = 255
-				n.l4 = Racket::L4::TCP.new
-				n.l4.src_port = src_port
-				n.l4.dst_port = msg.addr.port
-				n.l4.seq = rand(2**32)
-				#n.l4.ack = rand(2**32)
-				n.l4.flag_syn = 1
-				#n.l4.flag_ack = 1
-				n.l4.window = 4445
-				
-				n.l4.fix!(n.l3.src_ip, n.l3.dst_ip, "")
-				amt = n.sendpacket
-
-				@log.debug "sent #{amt} bytes"
-
+				@log.debug "udp to #{addr}:#{msg.addr.port}"
+				u = UDPSocket.new
+				u.bind("0.0.0.0", src_port)
+				u.send("server", 0, addr, msg.addr.port
+	
 				send_msg(Msg.new(
 					:op_code => OPCODE,
 					:addr => Addr.new(
