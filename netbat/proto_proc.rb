@@ -2,20 +2,55 @@ module Netbat
 
 class ProtoProcDesc
 
-	@@procedures = []
+	@@procedures = {}
 
 	def self.procedures
 		return @@procedures
 	end
 
-	def self.register(klass)
-		@@procedures << klass
+	def self.register(fname, klass)
+		@@procedures[File.basename(fname, ".rb")] = klass
 	end
 end
 
 class PunchProcDesc < ProtoProcDesc
 	def self.supports?(my_type, peer_type)
 		return false
+	end
+
+	class PunchedUDP < Struct.new(:sock, :addr, :port)
+		def send(data)
+			self.sock.send(data, 0, self.addr, self.port)
+		end
+
+	end
+
+	def self.new_token()
+		return (0..(7 + rand(9)) ).map do |i| 
+			rand(0x100)
+		end.pack("C*")
+	end
+
+	def self.confirm_udp(pudp, token, timeout=15)
+		begin
+			Timeout::timeout(timeout) do 
+				loop do 
+					pudp.send(token)
+					sleep(0.5)
+				end
+			end
+		rescue Timeout::Error
+		end
+	end
+
+	#warning this may wait forever, so run it in another thread
+	def wait_udp(usock, token, timeout=15)
+		loop do 
+			data, addrinfo = pudp.recvfrom(token.size)
+			if token == data
+				return PunchedUDP.new(usock, addrinfo[3], addrinfo[1])
+			end
+		end
 	end
 end
 
@@ -25,7 +60,8 @@ class ProtoProc
 		:failure, 
 		:success, 
 		:proto_error,
-		:std_err
+		:std_err,
+		:timeout
 	]
 
 	RESERVED_STATES = [
@@ -102,12 +138,22 @@ class ProtoProc
 	end
 	
 	def timeout(msg)
-		return std_err(Timeout.new(msg))
+		return trans(:timeout, Timeout.new(msg))
 	end
 
 	#must have a lock on @state in this function
 	def terminated?
 		return TERMINAL_STATES.include?(@state)
+	end
+
+	def on_terminate(&bloc) 
+		@on_terminate = bloc
+	end
+
+	def state_lock(&bloc)
+		@state_mtx.synchronize do 
+			bloc.call()
+		end
 	end
 
 	def recv(msg)
@@ -139,15 +185,24 @@ class ProtoProc
 	end
 
 	#must have a lock on @state while in this function
+	def run_on_terminate()
+		if @on_terminate
+			instance_exec(&@on_terminate)
+		end
+	end
+
+	#must have a lock on @state while in this function
 	def make_transition(tr)
 		return if tr == NullTransition
 		@history << tr
 		@log.debug "transition: #{@state} => #{tr.next}"
 		raise "invalid state: #{@state.inspect}" if !@state.is_a?(Symbol)
 		raise "invalid state: #{tr.next.inspect}" if !tr.next.is_a?(Symbol)
+		raise "invalid transition from #{@state}" if terminated?
 		@state = tr.next
 		run_on_entry()
 		update_last_transition()
+		run_on_terminate() if terminated?
 	end
 
 	class ProtoProcException < Exception; end
@@ -171,7 +226,7 @@ class ProtoProc
 			raise @history.last.user
 		end
 
-		if (Time.now.to_i - @last_transition) > @peer_timeout
+		if (Time.now.to_i - last_activity()) > @peer_timeout
 			@state_mtx.synchronize do 
 				#make sure its still true
 				if (Time.now.to_i - @last_transition) > @peer_timeout
@@ -179,8 +234,17 @@ class ProtoProc
 				end
 			end
 		end
+		update()
 
 		return nil
+	end
+
+	def last_activity()
+		return @last_transition
+	end
+
+	def update()
+		#nothing
 	end
 
 	def startup()

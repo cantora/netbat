@@ -168,9 +168,10 @@ class Demuxer
 			@active_mtx.synchronize do
 				@log.debug("active: #{@active.keys.inspect}")
 				if !@active.has_key?(from_addr)
-					@active[from_addr] = @ctx_factory.call(from_addr, msg)
+					new_ctx = @ctx_factory.call(from_addr, msg, @active)
+					@active[from_addr] = new_ctx if !new_ctx.nil?
 				else
-					bloc.call(@active[from_addr], msg)
+					bloc.call(@active[from_addr], msg, @active)
 				end
 				@active[from_addr].inc_peer_seq()
 			end
@@ -195,7 +196,7 @@ class Demuxer
 			break if !@socket.bound?
 
 			@active.each do |from, ctx|
-				@clock.call(ctx) 
+				@clock.call(ctx, @active) 
 			end if !@clock.nil?
 
 			sleep(0.1)

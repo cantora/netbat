@@ -12,6 +12,7 @@ require 'netbat/server_ctx'
 require 'netbat/protobuf/netbat.pb'
 require 'netbat/log'
 require 'netbat/public'
+require 'netbat/proto_proc'
 
 require 'optparse'
 require 'uri'
@@ -23,7 +24,13 @@ module Netbat
 	class Cmd
 
 		SB_TYPES = [:xmpp]
-		
+
+		PROCS = []
+		ProtoProcDesc::procedures.each do |k,v|
+			next if k == "INFO"
+			PROCS << k
+		end
+						
 		def self.parse(argv)
 			options = {
 				:verbose 			=> 0,
@@ -58,7 +65,8 @@ module Netbat
 				end
 
 				host_types = Netbat::Msg::HostType.constants.map {|x| x.to_s}
-				t_desc = "type of host: #{host_types.join(", ")}"
+				options[:host_type] = :UNKNOWN
+				t_desc = "type of host: #{host_types.join(", ")}. default: #{options[:host_type].inspect}"
 				opts.on('-t', '--host-type TYPE', host_types, t_desc) do |ht|
 					options[:host_type] = ht.to_sym
 				end
@@ -72,6 +80,14 @@ module Netbat
 					options[:v4_port] = port
 				end
 
+				options[:cx_procs] = [PROCS[0]]
+				p_first = true
+				p_desc = "connection procedures: #{PROCS.join(", ")}. default: #{options[:cx_procs].join(", ")}"
+				opts.on('-p', '--cx-proc PROC', PROCS, p_desc) do |cp|
+					options[:cx_procs] = [] if p_first == true
+					options[:cx_procs] << cp
+				end
+				
 				opts.separator ""
 				opts.separator "xmpp options:"
 				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
@@ -86,8 +102,18 @@ module Netbat
 					options[:verbose] += 1
 				end
 
-				opts.on('-h', '--help', 'display this message') do
-					raise ""
+				h_help = 'display this message. if PROC is passed, output the usage for PROC.'
+				opts.on('-h', '--help [PROC]', h_help) do |cx_proc|
+					if PROCS.include?(cx_proc)
+						klass = ProtoProcDesc::procedures[cx_proc]
+						if klass.nil?
+							raise "no such connection procedure: #{cx_proc}"
+						else
+							raise klass.usage()
+						end
+					else
+						raise ""
+					end
 				end
 			end
 			
@@ -200,10 +226,14 @@ module Netbat
 		def run()
 			if @options[:v4_addr] || @options.include?(:v4_port)
 				public_addr()	
-			elsif @options[:listen]
-				cmd_listen
-			else
-				cmd_connect
+			else 
+				udpsock = if @options[:listen]
+					cmd_listen
+				else
+					cmd_connect
+				end	
+
+				raise "hoorj: #{udpsock.inspect}"
 			end
 		end
 
@@ -225,23 +255,31 @@ module Netbat
 
 		def cmd_listen
 			@log.debug "cmd_listen"
-			@log.debug Netbat::thread_list()
+			#@log.debug Netbat::thread_list()
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
-			@log.debug Netbat::thread_list()
+			#@log.debug Netbat::thread_list()
 
 			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
 			local_info.freeze
 
-			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg|
+			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg, active|
 				@log.info "new connection from #{peer.to_s}"
-				ctx = ServerCtx.new(sock, peer, local_info)
-				ctx.recv(first_msg)
-
-				ctx
+				
+				if active.size < 1
+					ctx = ServerCtx.new(sock, peer, local_info)
+					ctx.recv(first_msg)
+	
+					ctx
+				else
+					@log.debug "dropped connection"
+					nil
+				end
 			end
 			
+			result = nil
 			dmx.on_clock do |ctx|
-				ctx.clock()
+				result = ctx.clock()
+				sock.close if !result.nil?
 			end
 
 			dmx.demux do |ctx, msg|
@@ -253,11 +291,18 @@ module Netbat
 					ctx.recv(msg)
 				end
 			end
+	
+			if result.nil?
+				puts "unknown failure" 
+				exit(1)
+			end
+			
+			return result
 		end
 
 		def cmd_connect
 			@log.debug "cmd_connect"
-			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants).freeze
 
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			peer_addr = @options[:dst_addr]
@@ -283,14 +328,17 @@ module Netbat
 				end
 			end
 
-			begin
-				ctx.loop()
-			rescue ProtoProc::StandardException => e
+			result = begin
+				ctx.run(@options[:cx_procs].map {|name| ProtoProcDesc::procedures[name]})
+			rescue Client::AllProceduresFailed => e
 				$stderr.puts e.message
+				nil
 			rescue Exception => e
 				$stderr.puts Netbat::exception_str("fatal exception in run loop", e)
 				exit!(1)
 			end
+
+			return result
 		end
 
 	end #Cmd

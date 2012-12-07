@@ -6,7 +6,7 @@ module Netbat
 
 class INFO < ProtoProcDesc
 
-	register(self)
+	register(__FILE__, self)
 
 	OPCODE = Netbat::Msg::OpCode::INFO
 

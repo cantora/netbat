@@ -3,7 +3,7 @@ require 'netbat/proto_proc'
 
 require 'base64'
 
-['INFO', 'BF0', 'NN0', 'NN1'].each do |fname|
+['INFO', 'HP0'].each do |fname|
 	require File.join('netbat', 'proto_proc', fname)
 end
 
@@ -13,22 +13,23 @@ class ServerCtx < Datagram::ConnectionCtx
 
 	OPCODE_TO_PROC = {
 		Msg::OpCode::INFO => INFO.method(:server),
-		Msg::OpCode::BF0 => BF0.method(:server),
-		Msg::OpCode::NN0 => NN0.method(:server),
-		Msg::OpCode::NN1 => NN1.method(:server)
+		Msg::OpCode::HP0 => HP0.method(:server)
 	}
 
 	#gets called at regular intervals to provide cycles for internal maintenance
 	def clock()
-		current_proc_lock do 
+		return current_proc_lock do 
 			if !@current_proc.nil?
-				result = begin
-					if !@current_proc.status().nil? #procedure is finished
+				begin
+					stat = @current_proc.status()
+					if !stat.nil? #procedure is finished
 						@current_proc = nil
 					end
+					stat
 				rescue ProtoProc::ProtoProcException => e
 					@log.warn "procedure raised exception: #{e.inspect}"
 					@current_proc = nil
+					nil
 				end
 			end
 		end
