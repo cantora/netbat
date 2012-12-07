@@ -86,7 +86,7 @@ class NN1 < PunchProcDesc
 				@log.debug "udp to #{addr}:#{msg.addr.port}"
 				u = UDPSocket.new
 				u.bind("0.0.0.0", src_port)
-				u.send("server", 0, addr, msg.addr.port
+				u.send("server", 0, addr, msg.addr.port)
 	
 				send_msg(Msg.new(
 					:op_code => OPCODE,

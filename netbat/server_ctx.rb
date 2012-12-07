@@ -3,7 +3,7 @@ require 'netbat/proto_proc'
 
 require 'base64'
 
-['INFO', 'NN1'].each do |fname|
+['INFO', 'BF0', 'NN0', 'NN1'].each do |fname|
 	require File.join('netbat', 'proto_proc', fname)
 end
 
@@ -14,7 +14,8 @@ class ServerCtx < Datagram::ConnectionCtx
 	OPCODE_TO_PROC = {
 		Msg::OpCode::INFO => INFO.method(:server),
 		Msg::OpCode::BF0 => BF0.method(:server),
-		Msg::OpCode::NN0 => NN0.method(:server)
+		Msg::OpCode::NN0 => NN0.method(:server),
+		Msg::OpCode::NN1 => NN1.method(:server)
 	}
 
 	#gets called at regular intervals to provide cycles for internal maintenance
