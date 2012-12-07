@@ -80,7 +80,7 @@ HP0: hole punch with udp
 						@confirm_thread = Thread.new do
 							Thread.current.abort_on_exception = true
 	
-							PunchProcDesc::confirm_udp(pudp, addr.token)
+							PunchProcDesc::confirm_udp(@pudp, msg.token)
 						end
 
 						trans(:wait_for_confirm)
@@ -131,7 +131,7 @@ HP0: hole punch with udp
 				u.bind("0.0.0.0", src_port)
 				u.send("server", 0, addr, msg.addr.port)
 				
-				token = PunchProtoDesc::new_token()
+				token = PunchProcDesc::new_token()
 
 				send_msg(Msg.new(
 					:op_code => OPCODE,
@@ -148,11 +148,15 @@ HP0: hole punch with udp
 					Thread.current.abort_on_exception = true
 
 					#wont return unless successful
-					pudp = wait_udp(u, token)
+					pudp = PunchProcDesc::wait_udp(u, token)
 					state_lock do 
 						if !pudp.is_a?(PunchedUDP)
 							raise "wtf, invalid pudp: #{pudp.inspect}"
 						end
+
+						send_msg(Msg.new(
+							:op_code => OPCODE
+						))
 
 						make_transition(success(pudp))
 					end

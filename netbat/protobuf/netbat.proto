@@ -1,8 +1,8 @@
 package Netbat;
 
 message Addr {
-	required int32 	ip 		= 1;
-	required int32	port	= 2;
+	required uint32	ip 		= 1;
+	required uint32	port	= 2;
 }
 
 message Msg {
@@ -32,5 +32,5 @@ message Msg {
 	optional string 	err 				= 4;
 	optional ErrType	err_type			= 5;
 	optional Addr		addr				= 6;
-	optional string 	confirm				= 7;
+	optional string 	token				= 7;
 }

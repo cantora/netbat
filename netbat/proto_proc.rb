@@ -44,9 +44,9 @@ class PunchProcDesc < ProtoProcDesc
 	end
 
 	#warning this may wait forever, so run it in another thread
-	def wait_udp(usock, token, timeout=15)
+	def self.wait_udp(usock, token, timeout=15)
 		loop do 
-			data, addrinfo = pudp.recvfrom(token.size)
+			data, addrinfo = usock.recvfrom(token.size)
 			if token == data
 				return PunchedUDP.new(usock, addrinfo[3], addrinfo[1])
 			end
@@ -79,7 +79,7 @@ class ProtoProc
 		@on_recv = {}
 		@log = Netbat::LOG
 		@history = []
-		@peer_timeout = 5 #seconds
+		@peer_timeout = 9 #seconds
 		
 		args.each do |arg|
 			next if !arg.is_a?(Hash)
@@ -222,7 +222,7 @@ class ProtoProc
 			raise ProcedureFailed.new, @history.last.user
 		when :proto_error
 			raise ProtocolFailed.new, @history.last.user
-		when :std_err
+		when :std_err, :timeout
 			raise @history.last.user
 		end
 

@@ -64,6 +64,10 @@ module Netbat
 					options[:side_band] = sb
 				end
 
+				opts.on('--addr IP', "specify public IP address of local host") do |ip|
+					options[:addr] = ip
+				end
+
 				host_types = Netbat::Msg::HostType.constants.map {|x| x.to_s}
 				options[:host_type] = :UNKNOWN
 				t_desc = "type of host: #{host_types.join(", ")}. default: #{options[:host_type].inspect}"
@@ -153,10 +157,10 @@ module Netbat
 							raise "invalid port number: #{@options[:v4_port].inspect}"
 						end
 					end
-				end 
+				end
 
 			rescue Exception => e
-				puts e.message
+				puts e.message if !e.message.empty?
 				puts optparse
 				
 				exit
@@ -227,13 +231,11 @@ module Netbat
 			if @options[:v4_addr] || @options.include?(:v4_port)
 				public_addr()	
 			else 
-				udpsock = if @options[:listen]
+				if @options[:listen]
 					cmd_listen
 				else
 					cmd_connect
 				end	
-
-				raise "hoorj: #{udpsock.inspect}"
 			end
 		end
 
@@ -255,13 +257,14 @@ module Netbat
 
 		def cmd_listen
 			@log.debug "cmd_listen"
-			#@log.debug Netbat::thread_list()
+			@log.debug Netbat::thread_list()
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
-			#@log.debug Netbat::thread_list()
+			@log.debug Netbat::thread_list()
 
-			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants, :ipv4 => @options[:addr])
 			local_info.freeze
 
+			@log.debug "local info: #{local_info.inspect}"
 			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg, active|
 				@log.info "new connection from #{peer.to_s}"
 				
@@ -279,7 +282,7 @@ module Netbat
 			result = nil
 			dmx.on_clock do |ctx|
 				result = ctx.clock()
-				sock.close if !result.nil?
+				sock.close if result.is_a?(PunchProcDesc::PunchedUDP)
 			end
 
 			dmx.demux do |ctx, msg|
@@ -293,16 +296,19 @@ module Netbat
 			end
 	
 			if result.nil?
-				puts "unknown failure" 
-				exit(1)
+				raise "result shouldnt be nil"
 			end
 			
-			return result
+			puts "got udp socket: #{result.inspect}"
 		end
 
 		def cmd_connect
 			@log.debug "cmd_connect"
-			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants).freeze
+			local_info = LocalInfo.new(
+				@options[:host_type], 
+				Msg::OpCode.constants,
+				:ipv4 => @options[:addr]
+			).freeze
 
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			peer_addr = @options[:dst_addr]
@@ -330,7 +336,7 @@ module Netbat
 
 			result = begin
 				ctx.run(@options[:cx_procs].map {|name| ProtoProcDesc::procedures[name]})
-			rescue Client::AllProceduresFailed => e
+			rescue ClientCtx::AllProceduresFailed => e
 				$stderr.puts e.message
 				nil
 			rescue Exception => e
@@ -338,6 +344,7 @@ module Netbat
 				exit!(1)
 			end
 
+			puts "got result: #{result.inspect}"
 			return result
 		end
 

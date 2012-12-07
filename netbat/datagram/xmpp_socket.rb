@@ -27,6 +27,7 @@ class XMPPSocket < Socket
 					raise ArgumentError.new, "invalid #{k}: #{v.inspect}"
 				end
 			end
+
 		end
 		
 		def to_s
@@ -64,27 +65,14 @@ class XMPPSocket < Socket
 		
 		@addr = addr
 		@password = password
-		init_client()
-		@thr = nil
 		@log = Netbat::LOG
 
 		@recv_handler = nil
 		@bind_handler = nil
 		@close_hander = nil
-	end
 
-=begin
-	def client_handler(*args, &bloc)
-		#blather doesnt handle the case where 
-		#we clear a handler when it doesnt exist yet, and i 
-		#dont see a way to test for existence of a handler in the API.
-		#thus we have to create one, then delete all, then create one
-		@client.register_handler(*args, &bloc)
-
-		@client.clear_handlers(*args)
-		@client.register_handler(*args, &bloc)
+		Thread.new {EventMachine.run} if !EventMachine.reactor_running?
 	end
-=end
 
 	def init_client
 		@client = Blather::Client.setup(self.xmpp_id, @password)
@@ -136,7 +124,8 @@ class XMPPSocket < Socket
 			@bind_mutex.synchronize do
 				@bind_cv.signal
 			end
-			
+			@send_signal = true
+
 			@client.status = :available
 			if !@bind_handler.nil?
 				@bind_handler.call()
@@ -168,20 +157,14 @@ class XMPPSocket < Socket
 	end
 
 	def bound?
-		return !@thr.nil?
+		return !@client.nil?
 	end
 
 	def bind
-		raise "endpoint is already bound!" if !@thr.nil?
-
-		ready = false
-		@thr = Thread.new do
-			Thread.current.abort_on_exception = true
-			@log.debug "xmpp socket start client"
-			EventMachine.run { 
-				@client.run
-			}
-		end
+		raise "endpoint is already bound!" if !@client.nil?
+		
+		init_client()
+		@client.run
 
 		@bind_cv = ConditionVariable.new
 		@bind_mutex = Mutex.new
@@ -197,22 +180,19 @@ class XMPPSocket < Socket
 	end
 
 	def close
-		raise "endpoint not bound" if @thr.nil?
+		raise "endpoint not bound" if @client.nil?
 		
-		@log.debug "unbind"
-		if @client.connected?
-			@log.debug "close client (status = #{@client.status.inspect})"
-			@client.close 
-		else
-			@log.debug "client not setup, kill thread"
-			@thr.kill
+		@log.debug "close client (status = #{@client.status.inspect})"
+		#clear handlers
+		@client.instance_exec do
+			@handlers = {}
 		end
+		@client.close 
 
-		@log.debug "join thread"
-		@thr.join
-		@log.debug "thread dead"
-		init_client()
-		@thr = nil
+		while @client.connected?
+		end
+		@client = nil
+		@log.debug "closed client"
 	end
 
 	def on_close(&bloc)
@@ -225,6 +205,7 @@ class XMPPSocket < Socket
 	end
 
 	def subscribe(peer_addr)
+		raise "this doesnt work"
 		@log.warn "subscribe to peer #{peer_addr.to_s}"
 
 		@client.register_tmp_handler(:stanza) do |thing|

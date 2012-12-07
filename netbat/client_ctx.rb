@@ -32,12 +32,12 @@ class ClientCtx < Datagram::ConnectionCtx
 				result = begin
 					run_proto_proc(ppd.client(self, @local_info))
 				rescue ProtoProc::StandardException => e
-					@log.warn "#{ppd.class} threw exception: #{e.message}. continuing..."
+					@log.warn "#{ppd} threw exception: #{e.message}. continuing..."
 					nil
 				end
 				break if result.is_a?(UDPSocket)
 			else
-				@log.info "  #{ppd.class} does not support host types"
+				@log.info "  #{ppd} does not support host types"
 			end
 		end
 
@@ -46,7 +46,7 @@ class ClientCtx < Datagram::ConnectionCtx
 			return result
 		else
 			@log.info "failure: #{result.inspect}"
-			raise AllProceduresFailed.new, "all failed: #{procs.map {|x| x.class.to_s}.join(", ")}"
+			raise AllProceduresFailed.new, "all failed: #{procs.map {|x| x.to_s}.join(", ")}"
 		end
 	end
 
