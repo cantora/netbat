@@ -1,0 +1,4 @@
+gem dependencies:
+	ruby-protocol-buffers
+	blather
+	system-getifaddrs
