@@ -103,7 +103,7 @@ HP0: hole punch with udp
 				#to be certain no more confirm tokens are being sent
 				#if it sees different data than the token
 				
-				@pudp.send(
+				@pudp.snd(
 					loop { x = PunchProcDesc::new_token(); break x if x != @token }
 				)
 				success(@pudp)

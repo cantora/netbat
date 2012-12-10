@@ -1,3 +1,5 @@
+require 'netbat/socket'
+
 module Netbat
 
 class ProtoProcDesc
@@ -21,34 +23,11 @@ class PunchProcDesc < ProtoProcDesc
 	module PunchProcResult
 
 	end
-	
-	class PunchedUDP < Struct.new(:sock, :addr, :port)
+
+	class PunchedUDP < UDPctx
 		include PunchProcResult
-
-		def initialize(*args)
-			super(*args)
-		
-			@udp_w_mtx = Mutex.new
-			@udp_r_mtx = Mutex.new
-		end
-
-		def send(data)
-			@udp_w_mtx.synchronize do 
-				self.sock.send(data, 0, self.addr, self.port)
-			end
-		end
-
-		def recv()
-			@udp_r_mtx.synchronize do 
-				loop do 
-					msg, addr_info = self.sock.recvfrom(2048)
-					if addr_info[1] == self.port \
-							&& addr_info[3] == self.addr
-						return msg
-					end
-				end
-			end
-		end
+		alias_method :rcv, :read
+		alias_method :snd, :write
 	end
 
 	def self.new_token()
@@ -61,7 +40,7 @@ class PunchProcDesc < ProtoProcDesc
 		begin
 			Timeout::timeout(timeout) do 
 				loop do 
-					pudp.send(token)
+					pudp.snd(token)
 					sleep(0.5)
 				end
 			end
@@ -86,7 +65,7 @@ class PunchProcDesc < ProtoProcDesc
 		loop do
 			begin
 				Timeout::timeout(2) do
-					return if pudp.recv != token
+					return if pudp.rcv() != token
 				end
 			rescue Timeout::error
 				return

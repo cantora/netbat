@@ -13,6 +13,7 @@ require 'netbat/protobuf/netbat.pb'
 require 'netbat/log'
 require 'netbat/public'
 require 'netbat/proto_proc'
+require 'netbat/socket'
 
 require 'optparse'
 require 'uri'
@@ -24,7 +25,6 @@ module Netbat
 	class Cmd
 
 		SB_TYPES = [:xmpp]
-		ACTIONS = [:io]
 
 		PROCS = []
 		ProtoProcDesc::procedures.each do |k,v|
@@ -37,8 +37,7 @@ module Netbat
 				:verbose 			=> 0,
 				:cx_amt				=> 1,
 				:sb_type			=> :xmpp,
-				:xmpp_sub			=> false,
-				:action				=> :io
+				:xmpp_sub			=> false
 			}
 												
 			optparse = OptionParser.new do |opts|
@@ -97,6 +96,16 @@ module Netbat
 				k_desc = "emit messages every INTERVAL seconds to help persist tunnels/connections"
 				opts.on('-k', '--keepalive INTERVAL', Integer, k_desc) do |interval|
 					options[:keepalive] = interval
+				end
+
+				c_desc = "pipe established connection to ADDR:PORT"
+				opts.on('-c', '--connect ADDR:PORT', c_desc) do |dest|
+					addr, port = dest.split(":", 2)
+					raise "-c: empty address" if addr.empty?
+					raise "-c: empty port" if port.empty?
+					port = port.to_i
+					raise "-c: invalid port: #{port.inspect}" if !(1..(2**16)-1).include?(port)
+					options[:connect] = [addr, port]
 				end
 				
 				opts.separator ""
@@ -368,29 +377,30 @@ module Netbat
 		end
 
 		def action_switch(pudp)
-			case @options[:action]
-			when :io
-				action_io(pudp)
+			if @options[:connect]
+				action_connect(pudp)
 			else
-				raise "unknown action: #{@options[:action]}"
+				action_io(pudp)
 			end
 		end
 
-		def action_io(pudp)
-			
+		#bloc should be a function that reads from whatever
+		#we are pipeing to. it can block.
+		def pipe_pudp(pudp, out_io, &bloc) 
+
 			Thread.new do
 				Thread.current.abort_on_exception = true
 
 				loop do
-					data = pudp.recv()
-					$stdout.write(data) if data.size > 0
+					data = pudp.rcv()
+					out_io.write(data) if data.size > 0
 				end
 			end
 
 			Thread.new do
 				#ping to help keep the NAT port forwarding active
 				loop do 
-					pudp.send("")
+					pudp.snd("")
 					time = @options[:keepalive]
 					time = 1 if time < 1
 					sleep(time)
@@ -398,9 +408,31 @@ module Netbat
 			end if @options[:keepalive]
 
 			loop do 
-				pudp.send($stdin.readline() )
+				pudp.snd(bloc.call())
 			end
 		end
+
+		def action_io(pudp)
+			pipe_pudp(pudp, $stdout) do 
+				$stdin.readline()
+			end
+		end
+
+		def action_connect(pudp)
+			
+			u = UDPSocket.new()
+			u.bind("127.0.0.1", 4567)
+			
+			sock = UDPio.new(u, @options[:connect][0], @options[:connect][1])
+
+			pipe_pudp(pudp, sock) do 
+				#@log.debug "block on socket read"
+				data = sock.read()
+				#@log.debug "read returned #{data.size} bytes"
+				data
+			end
+		end
+
 	end #Cmd
 end
 
