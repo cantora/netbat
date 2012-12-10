@@ -192,14 +192,15 @@ class Demuxer
 		end
 		
 		@log.debug "demux: wait for activity"
+		i = 0
 		loop do 
 			break if !@socket.bound?
+			sleep(0.1) if i > 0
 
 			@active.each do |from, ctx|
 				@clock.call(ctx, @active) 
 			end if !@clock.nil?
-
-			sleep(0.1)
+			i += 1
 		end
 		@log.debug "demux: finished. returning"
 	end

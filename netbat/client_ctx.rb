@@ -35,13 +35,13 @@ class ClientCtx < Datagram::ConnectionCtx
 					@log.warn "#{ppd} threw exception: #{e.message}. continuing..."
 					nil
 				end
-				break if result.is_a?(UDPSocket)
+				break if result.is_a?(PunchProcDesc::PunchProcResult)
 			else
 				@log.info "  #{ppd} does not support host types"
 			end
 		end
 
-		if result.is_a?(UDPSocket)
+		if result.is_a?(PunchProcDesc::PunchProcResult)
 			@log.info "success: #{result.inspect}"
 			return result
 		else

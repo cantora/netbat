@@ -189,8 +189,7 @@ class XMPPSocket < Socket
 		end
 		@client.close 
 
-		while @client.connected?
-		end
+		#while @client.connected?; end
 		@client = nil
 		@log.debug "closed client"
 	end

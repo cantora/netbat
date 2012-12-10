@@ -24,6 +24,7 @@ module Netbat
 	class Cmd
 
 		SB_TYPES = [:xmpp]
+		ACTIONS = [:io]
 
 		PROCS = []
 		ProtoProcDesc::procedures.each do |k,v|
@@ -36,7 +37,8 @@ module Netbat
 				:verbose 			=> 0,
 				:cx_amt				=> 1,
 				:sb_type			=> :xmpp,
-				:xmpp_sub			=> false
+				:xmpp_sub			=> false,
+				:action				=> :io
 			}
 												
 			optparse = OptionParser.new do |opts|
@@ -90,6 +92,11 @@ module Netbat
 				opts.on('-p', '--cx-proc PROC', PROCS, p_desc) do |cp|
 					options[:cx_procs] = [] if p_first == true
 					options[:cx_procs] << cp
+				end
+
+				k_desc = "emit messages every INTERVAL seconds to help persist tunnels/connections"
+				opts.on('-k', '--keepalive INTERVAL', Integer, k_desc) do |interval|
+					options[:keepalive] = interval
 				end
 				
 				opts.separator ""
@@ -282,7 +289,11 @@ module Netbat
 			result = nil
 			dmx.on_clock do |ctx|
 				result = ctx.clock()
-				sock.close if result.is_a?(PunchProcDesc::PunchedUDP)
+				if result.is_a?(PunchProcDesc::PunchedUDP)
+					@log.debug "got result. close OOB socket"
+					sock.close 
+					@log.debug "closed OOB socket"
+				end
 			end
 
 			dmx.demux do |ctx, msg|
@@ -299,7 +310,9 @@ module Netbat
 				raise "result shouldnt be nil"
 			end
 			
-			puts "got udp socket: #{result.inspect}"
+			@log.debug "result: #{result.inspect}"
+			$stderr.puts "connected to udp #{result.addr}:#{result.port}"
+			action_switch(result)
 		end
 
 		def cmd_connect
@@ -308,7 +321,8 @@ module Netbat
 				@options[:host_type], 
 				Msg::OpCode.constants,
 				:ipv4 => @options[:addr]
-			).freeze
+			)
+			local_info.freeze
 
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			peer_addr = @options[:dst_addr]
@@ -334,20 +348,59 @@ module Netbat
 				end
 			end
 
-			result = begin
+			pudp = begin
 				ctx.run(@options[:cx_procs].map {|name| ProtoProcDesc::procedures[name]})
 			rescue ClientCtx::AllProceduresFailed => e
-				$stderr.puts e.message
-				nil
+				$stderr.puts "all methods failed to establish connection: #{e.message}"
+				return
+			rescue ProtoProc::StandardException => e
+				$stderr.puts "general failure: #{e.message}"
+				return 
 			rescue Exception => e
 				$stderr.puts Netbat::exception_str("fatal exception in run loop", e)
 				exit!(1)
 			end
 
-			puts "got result: #{result.inspect}"
-			return result
+			@log.debug "got result: #{pudp.inspect}"
+			$stderr.puts "connected to udp #{pudp.addr}:#{pudp.port}"
+
+			action_switch(pudp)
 		end
 
+		def action_switch(pudp)
+			case @options[:action]
+			when :io
+				action_io(pudp)
+			else
+				raise "unknown action: #{@options[:action]}"
+			end
+		end
+
+		def action_io(pudp)
+			
+			Thread.new do
+				Thread.current.abort_on_exception = true
+
+				loop do
+					data = pudp.recv()
+					$stdout.write(data) if data.size > 0
+				end
+			end
+
+			Thread.new do
+				#ping to help keep the NAT port forwarding active
+				loop do 
+					pudp.send("")
+					time = @options[:keepalive]
+					time = 1 if time < 1
+					sleep(time)
+				end
+			end if @options[:keepalive]
+
+			loop do 
+				pudp.send($stdin.readline() )
+			end
+		end
 	end #Cmd
 end
 

@@ -18,11 +18,37 @@ class PunchProcDesc < ProtoProcDesc
 		return false
 	end
 
+	module PunchProcResult
+
+	end
+	
 	class PunchedUDP < Struct.new(:sock, :addr, :port)
-		def send(data)
-			self.sock.send(data, 0, self.addr, self.port)
+		include PunchProcResult
+
+		def initialize(*args)
+			super(*args)
+		
+			@udp_w_mtx = Mutex.new
+			@udp_r_mtx = Mutex.new
 		end
 
+		def send(data)
+			@udp_w_mtx.synchronize do 
+				self.sock.send(data, 0, self.addr, self.port)
+			end
+		end
+
+		def recv()
+			@udp_r_mtx.synchronize do 
+				loop do 
+					msg, addr_info = self.sock.recvfrom(2048)
+					if addr_info[1] == self.port \
+							&& addr_info[3] == self.addr
+						return msg
+					end
+				end
+			end
+		end
 	end
 
 	def self.new_token()
@@ -49,6 +75,21 @@ class PunchProcDesc < ProtoProcDesc
 			data, addrinfo = usock.recvfrom(token.size)
 			if token == data
 				return PunchedUDP.new(usock, addrinfo[3], addrinfo[1])
+			end
+		end
+	end
+
+	#returns after 2 seconds of not receiving 
+	#any token messages, or after receiving 
+	#non-token data
+	def self.clean_pudp(pudp, token)
+		loop do
+			begin
+				Timeout::timeout(2) do
+					return if pudp.recv != token
+				end
+			rescue Timeout::error
+				return
 			end
 		end
 	end
@@ -108,6 +149,10 @@ class ProtoProc
 
 	def on_recv(state, &bloc)
 		@on_recv[state] = bloc
+	end
+
+	def on_success(&bloc)
+		on_recv(:success, &bloc)
 	end
 
 	Transition = Struct.new(:next, :user)

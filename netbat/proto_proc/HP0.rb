@@ -77,6 +77,7 @@ HP0: hole punch with udp
 					@pudp = PunchedUDP.new(u, addr, msg.addr.port)
 					
 					if msg.token.size > 0
+						@token = msg.token
 						@confirm_thread = Thread.new do
 							Thread.current.abort_on_exception = true
 	
@@ -97,6 +98,14 @@ HP0: hole punch with udp
 			if msg.check(:op_code => OPCODE)
 				@confirm_thread.kill
 				@confirm_thread = nil
+
+				#optimization: peer doesnt have to wait for 2 seconds
+				#to be certain no more confirm tokens are being sent
+				#if it sees different data than the token
+				
+				@pudp.send(
+					loop { x = PunchProcDesc::new_token(); break x if x != @token }
+				)
 				success(@pudp)
 			else
 				proto_error("unexpected response: #{msg.inspect}")
@@ -149,6 +158,8 @@ HP0: hole punch with udp
 
 					#wont return unless successful
 					pudp = PunchProcDesc::wait_udp(u, token)
+					#so our hole punch worked. but still we need to 
+					#signal to peer to confirm that it worked
 					state_lock do 
 						if !pudp.is_a?(PunchedUDP)
 							raise "wtf, invalid pudp: #{pudp.inspect}"
@@ -158,6 +169,9 @@ HP0: hole punch with udp
 							:op_code => OPCODE
 						))
 
+						#clear all the token messages out of
+						#the IO if they are there
+						PunchProcDesc::clean_pudp(pudp, token)	
 						make_transition(success(pudp))
 					end
 				end #Thread
@@ -167,7 +181,7 @@ HP0: hole punch with udp
 				proto_error("ignoring unexpected message: #{msg.inspect}")
 			end
 		end
-				
+		
 		return pproc
 	end
 
