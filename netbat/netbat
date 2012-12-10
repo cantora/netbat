@@ -421,8 +421,7 @@ module Netbat
 		def action_connect(pudp)
 			
 			u = UDPSocket.new()
-			u.bind("127.0.0.1", 4567)
-			
+						
 			sock = UDPio.new(u, @options[:connect][0], @options[:connect][1])
 
 			pipe_pudp(pudp, sock) do 
