@@ -14,6 +14,7 @@ require 'netbat/log'
 require 'netbat/public'
 require 'netbat/proto_proc'
 require 'netbat/socket'
+require 'netbat/tun'
 
 require 'optparse'
 require 'uri'
