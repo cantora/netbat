@@ -25,6 +25,15 @@ module Netbat
 	
 	class Cmd
 
+		DEFAULT_TUN_PREFIX = [[169, 254, 252, 0], 30]
+		def self.role_addr_suffix(is_server)
+			if is_server
+				253
+			else
+				254
+			end
+		end
+
 		SB_TYPES = [:xmpp]
 
 		PROCS = []
@@ -102,13 +111,39 @@ module Netbat
 				c_desc = "pipe established connection to ADDR:PORT"
 				opts.on('-c', '--connect ADDR:PORT', c_desc) do |dest|
 					addr, port = dest.split(":", 2)
-					raise "-c: empty address" if addr.empty?
-					raise "-c: empty port" if port.empty?
+					raise ArgumentError.new, "-c: empty address" if addr.empty?
+					raise ArgumentError.new,  "-c: empty port" if port.empty?
 					port = port.to_i
-					raise "-c: invalid port: #{port.inspect}" if !(1..(2**16)-1).include?(port)
+					raise ArgumentError.new,  "-c: invalid port: #{port.inspect}" if !(1..(2**16)-1).include?(port)
 					options[:connect] = [addr, port]
 				end
+
+				tun_desc = <<-EOS
+create a tunnel interface with ADDR/MASK to connect to peer (requires root).
+					if no ADDR/MASK given, use default: #{DEFAULT_TUN_PREFIX[0].join(".")}/#{DEFAULT_TUN_PREFIX[1]}"
+				EOS
+				opts.on('--tun [ADDR/MASK]', tun_desc) do |if_addr|
+					if if_addr.nil?
+						options[:tun] = true
+					else
+						m = if_addr.match(/^\s*(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)\s*$/)
+						if if_addr.empty? || m.nil? \
+								|| m.captures[0..3].find {|x| !(0..0xff).include?(x.to_i) }
+							raise ArgumentError.new,  "--tun: invalid address/mask: #{if_addr.inspect}" 
+						end
+			
+						options[:tun] = [
+							m.captures[0..3].map {|x| x.to_i},
+							m.captures[4].to_i
+						]
+					end
+				end
 				
+				opts.on('--tcp', "tunnel tcp over result udp connection (implies --tun).") do |tcp|
+					options[:tun] = true if !options[:tun].nil?
+					options[:tcp] = true
+				end
+
 				opts.separator ""
 				opts.separator "xmpp options:"
 				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
@@ -128,12 +163,12 @@ module Netbat
 					if PROCS.include?(cx_proc)
 						klass = ProtoProcDesc::procedures[cx_proc]
 						if klass.nil?
-							raise "no such connection procedure: #{cx_proc}"
+							raise ArgumentError.new,  "no such connection procedure: #{cx_proc}"
 						else
-							raise klass.usage()
+							raise ArgumentError.new,  klass.usage()
 						end
 					else
-						raise ""
+						raise ArgumentError.new,  ""
 					end
 				end
 			end
@@ -144,42 +179,46 @@ module Netbat
 				if !options[:v4_addr] && !options.include?(:v4_port)
 					options[:src_addr] = argv.shift
 					if options[:src_addr].nil? || options[:src_addr].strip.empty?
-						raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
+						raise ArgumentError.new,  "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
 					end
 					options[:src_addr], options[:src_auth] = begin
 						src_addr_and_auth(options, options[:src_addr])
 					rescue ArgumentError => e
-						raise "invalid source address: #{e.message}"
+						raise ArgumentError.new,  "invalid source address: #{e.message}"
 					end
 	
 					if options[:listen].nil?
 						options[:dst_addr] = argv.shift
 						if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
-							raise "invalid DST-ADDR: #{options[:dst_addr].inspect}"
+							raise ArgumentError.new,  "invalid DST-ADDR: #{options[:dst_addr].inspect}"
 						end
 	
 						options[:dst_addr] = begin
 							dst_addr(options, options[:dst_addr])
 						rescue ArgumentError => e
-							raise "invalid destination address: #{e.message}"
+							raise ArgumentError.new,  "invalid destination address: #{e.message}"
 						end
 					end
 	
 					if !Netbat::Msg::HostType.constants.include?(options[:host_type])
-						raise "must provide valid host type. got: #{options[:host_type].inspect}"
+						raise ArgumentError.new,  "must provide valid host type. got: #{options[:host_type].inspect}"
+					end
+
+					if !options[:tcp].nil? && options[:connect].nil?
+						raise ArgumentError.new,  "--connect must be specified for --tcp to work"
 					end
 				else #public address discovery
 					if options.include?(:v4_port)
 						if !(1025..(2**16-1)).include?(options[:v4_port])
-							raise "invalid port number: #{@options[:v4_port].inspect}"
+							raise ArgumentError.new,  "invalid port number: #{@options[:v4_port].inspect}"
 						end
 					end
 				end
 
-			rescue Exception => e
+			rescue ArgumentError => e
 				puts e.message if !e.message.empty?
 				puts optparse
-				
+
 				exit
 			end	
 			
@@ -379,7 +418,20 @@ module Netbat
 
 		def action_switch(pudp)
 			if @options[:connect]
-				action_connect(pudp)
+				if !@options[:tun].nil?
+					action_tun(pudp) do
+						action_tun_connect()
+					end
+				else
+					action_connect(pudp)					
+				end
+			elsif !@options[:tun].nil?
+				begin
+					action_tun(pudp) do 
+						Thread.stop
+					end
+				rescue Interrupt => e
+				end
 			else
 				action_io(pudp)
 			end
@@ -414,13 +466,14 @@ module Netbat
 		end
 
 		def action_io(pudp)
+			@log.debug "action_io"
 			pipe_pudp(pudp, $stdout) do 
 				$stdin.readline()
 			end
 		end
 
 		def action_connect(pudp)
-			
+			@log.debug "action_connect"
 			u = UDPSocket.new()
 						
 			sock = UDPio.new(u, @options[:connect][0], @options[:connect][1])
@@ -432,6 +485,54 @@ module Netbat
 				data
 			end
 		end
+
+		def action_tun(pudp, &bloc)
+			@log.debug "action_tun"
+			addr, mask = if @options[:tun].is_a?(Array)
+				@options[:tun]
+			else
+				arr = DEFAULT_TUN_PREFIX[0]
+				arr[3] = self.class.role_addr_suffix(@options[:listen])
+				[arr.join("."), DEFAULT_TUN_PREFIX[1]]
+			end
+
+			@log.debug "create tun interface with address #{addr}/#{mask.inspect}"
+			Tun::open(:addr => addr, :mask => mask ) do |tun|
+				io_t = Thread.new do
+					Thread.current.abort_on_exception = true
+
+					loop do 
+						rs, ws = IO.select([pudp.sock, tun], [pudp.sock, tun], [], timeout = 0.5)
+						if rs.include?(tun) 
+							if ws.include?(pudp.sock)
+								output_traf = tun.read(1500)
+								@log.debug "write #{output_traf.size} bytes of output"
+								pudp.snd(output_traf)
+							else
+								@log.debug "cant read from tun device b.c. udp will block"
+							end							
+						end
+
+						if rs.include?(pudp.sock)
+							if ws.include?(tun)
+								input_traf = pudp.rcv(1500)
+								@log.debug "write #{input_traf.size} bytes of input"
+								tun.write(input_traf)
+							else
+								@log.debug "cant read from tun device b.c. udp will block"
+							end
+						end
+					end #IO loop
+				end	#IO thread
+
+				begin
+					bloc.call()
+				ensure
+					io_t.kill()
+				end
+			end #close tunnel here
+
+		end #action_tun 
 
 	end #Cmd
 end

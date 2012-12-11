@@ -3,6 +3,8 @@ require 'netbat/log'
 module Netbat
 
 class UDPio < Struct.new(:sock, :addr, :port)
+	DEFAULT_READ_SIZE = 1500
+
 	def initialize(*args)
 		super(*args)
 	
@@ -17,7 +19,7 @@ class UDPio < Struct.new(:sock, :addr, :port)
 		end
 	end
 
-	def read(amt=2048)
+	def read(amt=DEFAULT_READ_SIZE)
 		@udp_r_mtx.synchronize do 
 			msg, addr_info = self.sock.recvfrom(amt)
 			msg
@@ -27,7 +29,7 @@ end
 
 class UDPctx < UDPio
 
-	def read(amt=2048)
+	def read(amt=DEFAULT_READ_SIZE)
 		@udp_r_mtx.synchronize do 
 			loop do 
 				msg, addr_info = self.sock.recvfrom(amt)
