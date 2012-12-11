@@ -12,7 +12,8 @@ module Tun
 	def self.open(*args, &bloc)
 		Kernel.open("/dev/net/tun", "w+") do |tun|
 
-			ifr = [ "nbtun#{rand(256)}", IFF_TUN|IFF_NO_PI ].pack("a16S")
+			#ifr = [ "nbtun#{rand(256)}", IFF_TUN|IFF_NO_PI ].pack("a16S")
+			ifr = [ "nbtun#{rand(256)}", IFF_TUN ].pack("a16S")
 			tun.ioctl(SETIFF, ifr)
 			ifname = ifr[0, 16].gsub(/\x00/, "")
 		

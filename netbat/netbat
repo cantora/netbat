@@ -502,25 +502,25 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 					Thread.current.abort_on_exception = true
 
 					loop do 
-						rs, ws = IO.select([pudp.sock, tun], [pudp.sock, tun], [], timeout = 0.5)
+						rs, ws = IO.select([pudp.sock, tun], [], [], timeout = 0.5)
+						@log.debug "select result: #{rs.inspect}"
+						next if rs.nil?
+
 						if rs.include?(tun) 
-							if ws.include?(pudp.sock)
-								output_traf = tun.read(1500)
-								@log.debug "write #{output_traf.size} bytes of output"
-								pudp.snd(output_traf)
-							else
-								@log.debug "cant read from tun device b.c. udp will block"
-							end							
+							@log.debug "read from tun interface"
+							output_traf = tun.read_nonblock(1500)
+							@log.debug "OUTPUT>>: #{output_traf.size} bytes"
+							pudp.snd(output_traf)
+							@log.debug "=>done"
 						end
 
 						if rs.include?(pudp.sock)
-							if ws.include?(tun)
-								input_traf = pudp.rcv(1500)
-								@log.debug "write #{input_traf.size} bytes of input"
-								tun.write(input_traf)
-							else
-								@log.debug "cant read from tun device b.c. udp will block"
-							end
+							@log.debug "read from udp socket"
+							input_traf = pudp.rcv()
+							@log.debug "<<INPUT: #{input_traf.size} bytes"
+							tun.write(input_traf)
+							tun.flush()
+							@log.debug "  =>done"
 						end
 					end #IO loop
 				end	#IO thread
