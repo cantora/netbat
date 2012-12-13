@@ -508,8 +508,15 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 				]
 			end
 
+
+			#shouldnt exceed 560 bytes with UDP to avoid fragmentation.
+			#448 leaves room for IP options + misc encapsulations on the route
+			udp_mtu = 448 
+	
+			#have to send at least one frame in each udp packet, so 
+			#tun mtu will be half of the udp_mtu
 			@log.debug "create tun interface with address #{addr}/#{mask.inspect}"
-			Tun::open(:addr => addr, :mask => mask ) do |tun, name|
+			Tun::open(:addr => addr, :mask => mask, :mtu => (udp_mtu >> 1) ) do |tun, name|
 				tun.sync = true
 
 				io_t = Thread.new do
@@ -517,6 +524,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 
 					read_in = 0
 					write_out = 0
+					last_snd = Time.at(0)
+
 					loop do 
 						$stderr.print "\r#{name}: in=#{read_in}, out=#{write_out}"
 
@@ -532,12 +541,14 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 							read_in += input_traf.size
 						end
 
-						if rs.include?(tun) 
+						if rs.include?(tun)
 							#@log.debug "read from tun interface"
-							output_traf = tun.read_nonblock(1500)
+							output_traf = tun.read_nonblock(udp_mtu)
 							#@log.debug "OUTPUT>>: #{output_traf.size} bytes"
+							
 							pudp.snd(output_traf)
 							write_out += output_traf.size
+							last_snd = Time.now
 						end
 						
 					end #IO loop

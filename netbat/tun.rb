@@ -34,6 +34,8 @@ module Tun
 					ifc.set_addr(addr)
 				when :mask
 					ifc.set_mask(v)
+				when :mtu
+					ifc.set_mtu(v)
 				end
 			end			
 		end

@@ -3,7 +3,8 @@
 module Netbat
 
 module Netif
-
+	#/usr/include/linux/sockios.h
+	#/usr/include/linux/if.h
 	IF_NAMESIZE 	= 16
 	SIZEOF_SOCKADDR	= 16
 	IFREQ_PACK_FMT 	= 'a16a16'
@@ -16,6 +17,8 @@ module Netif
 	SIOCSIFADDR		= 0x8916
 	SIOCGIFNETMASK	= 0x891b
 	SIOCSIFNETMASK	= 0x891c
+	SIOCGIFMTU		= 0x8921
+	SIOCSIFMTU		= 0x8922
 
 	IFF_UP			= 0x1	
 	IFF_RUNNING 	= 0x40
@@ -52,6 +55,17 @@ module Netif
 
 	def self.set_addr(ifname, fd, sin)
 		fd.ioctl(SIOCSIFADDR, pack(ifname, sin) )
+	end
+
+	def self.get_mtu(ifname, fd)
+		buf = pack(ifname) 
+		fd.ioctl(SIOCGIFMTU, buf)
+		
+		return result_arg(buf[0..3])
+	end
+
+	def self.set_mtu(ifname, fd, mtu)
+		fd.ioctl(SIOCSIFMTU, pack(ifname, [mtu].pack("L") ) )
 	end
 
 	def self.get_mask(ifname, fd)
