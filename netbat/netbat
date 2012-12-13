@@ -19,7 +19,7 @@ require 'netbat/tun'
 require 'optparse'
 require 'uri'
 require 'logger'
-
+require 'net/ping/icmp'
 
 module Netbat
 	
@@ -107,6 +107,9 @@ module Netbat
 				opts.on('-k', '--keepalive INTERVAL', Integer, k_desc) do |interval|
 					options[:keepalive] = interval
 				end
+				opts.on('--no-keepalive', "override any automatic keepalive logic (--tun)") do |bool|
+					options[:keepalive] = false
+				end
 
 				c_desc = "pipe established connection to ADDR:PORT"
 				opts.on('-c', '--connect ADDR:PORT', c_desc) do |dest|
@@ -120,7 +123,8 @@ module Netbat
 
 				tun_desc = <<-EOS
 create a tunnel interface with ADDR/MASK to connect to peer (requires root).
-					if no ADDR/MASK given, use default: #{DEFAULT_TUN_PREFIX[0].join(".")}/#{DEFAULT_TUN_PREFIX[1]}"
+					if no ADDR/MASK given, use default: #{DEFAULT_TUN_PREFIX[0].join(".")}/#{DEFAULT_TUN_PREFIX[1]}.
+					if ADDR/MASK given, you must provide the peer address using --tun-peer
 				EOS
 				opts.on('--tun [ADDR/MASK]', tun_desc) do |if_addr|
 					if if_addr.nil?
@@ -137,6 +141,20 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 							m.captures[4].to_i
 						]
 					end
+
+					if options[:keepalive].nil?
+						options[:keepalive] = 3
+					end
+				end
+
+				opts.on('--tun-peer ADDR', "the address of TUN tunnel peer") do |addr|
+					m = addr.match(/^\s*(\d+)\.(\d+)\.(\d+)\.(\d+)\s*$/)
+					if addr.empty? || m.nil? \
+							|| m.captures[0..3].find {|x| !(0..0xff).include?(x.to_i) }
+						raise ArgumentError.new,  "--tun-peer: invalid address: #{addr.inspect}" 
+					end
+			
+					options[:tun_peer] = m.captures[0..3].map {|x| x.to_i}
 				end
 				
 				opts.on('--tcp', "tunnel tcp over result udp connection (implies --tun).") do |tcp|
@@ -206,6 +224,10 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 
 					if !options[:tcp].nil? && options[:connect].nil?
 						raise ArgumentError.new,  "--connect must be specified for --tcp to work"
+					end
+
+					if options[:tun].is_a?(Array) && !options[:tun_peer]
+						raise ArgumentError.new, "--tun-peer must be specified when custom --tun address is used"
 					end
 				else #public address discovery
 					if options.include?(:v4_port)
@@ -488,47 +510,80 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 
 		def action_tun(pudp, &bloc)
 			@log.debug "action_tun"
-			addr, mask = if @options[:tun].is_a?(Array)
-				@options[:tun]
+			addr, mask, peer_addr = if @options[:tun].is_a?(Array)
+				raise "invalid peer address" if @options[:tun_peer].nil?
+				[*@options[:tun], @options[:tun_peer].join(".")]
 			else
 				arr = DEFAULT_TUN_PREFIX[0]
 				arr[3] = self.class.role_addr_suffix(@options[:listen])
-				[arr.join("."), DEFAULT_TUN_PREFIX[1]]
+				[
+					arr.join("."), 
+					DEFAULT_TUN_PREFIX[1], 
+					(arr[0..2] + [self.class.role_addr_suffix(!@options[:listen])]).join(".")
+				]
 			end
 
 			@log.debug "create tun interface with address #{addr}/#{mask.inspect}"
-			Tun::open(:addr => addr, :mask => mask ) do |tun|
+			Tun::open(:addr => addr, :mask => mask ) do |tun, name|
+				tun.sync = true
+
 				io_t = Thread.new do
 					Thread.current.abort_on_exception = true
 
+					read_in = 0
+					write_out = 0
 					loop do 
+						$stderr.print "\r#{name}: in=#{read_in}, out=#{write_out}"
+
 						rs, ws = IO.select([pudp.sock, tun], [], [], timeout = 0.5)
-						@log.debug "select result: #{rs.inspect}"
+						#@log.debug "select result: #{rs.inspect}"
 						next if rs.nil?
 
 						if rs.include?(tun) 
-							@log.debug "read from tun interface"
+							#@log.debug "read from tun interface"
 							output_traf = tun.read_nonblock(1500)
-							@log.debug "OUTPUT>>: #{output_traf.size} bytes"
+							#@log.debug "OUTPUT>>: #{output_traf.size} bytes"
 							pudp.snd(output_traf)
-							@log.debug "=>done"
+							write_out += output_traf.size
 						end
 
 						if rs.include?(pudp.sock)
-							@log.debug "read from udp socket"
+							#@log.debug "read from udp socket"
 							input_traf = pudp.rcv()
-							@log.debug "<<INPUT: #{input_traf.size} bytes"
+							#@log.debug "<<INPUT: #{input_traf.size} bytes"
 							tun.write(input_traf)
-							tun.flush()
-							@log.debug "  =>done"
+							read_in += input_traf.size
 						end
+
 					end #IO loop
 				end	#IO thread
 
+				ping_t = Thread.new do 
+					Thread.current.abort_on_exception = true
+					
+					ping = Net::Ping::ICMP.new(peer_addr)
+				
+					last_success = Time.now().to_i
+					thresh = 30 #seconds
+
+					loop do 
+						if ping.ping?
+							last_success = Time.now().to_i
+						end
+						
+						if Time.now().to_i - last_success > thresh
+							$stderr.puts "\nlost connectivity in tunnel (#{thresh} secs w/out ping)"
+							Kernel.exit(1)
+						end
+						sleep(@options[:keepalive])
+					end
+				end if @options[:keepalive]
+
 				begin
-					bloc.call()
+					bloc.call(peer_addr)
 				ensure
-					io_t.kill()
+					ping_t.kill()
+					io_t.kill()					
 				end
 			end #close tunnel here
 
