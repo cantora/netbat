@@ -512,36 +512,55 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			Tun::open(:addr => addr, :mask => mask ) do |tun, name|
 				tun.sync = true
 
-				io_t = Thread.new do
+				read_in = 0
+				write_out = 0
+				
+				read_t = Thread.new do
 					Thread.current.abort_on_exception = true
 
-					read_in = 0
-					write_out = 0
 					loop do 
-						$stderr.print "\r#{name}: in=#{read_in}, out=#{write_out}"
+						input_traf = begin 
+							pudp.rcv()
+						rescue IO::WaitReadable 
+							input_traf = nil
+						end
 
-						rs, ws = IO.select([pudp.sock, tun], [], [], timeout = 0.5)
-						#@log.debug "select result: #{rs.inspect}"
-						next if rs.nil?
-
-						if rs.include?(pudp.sock)
-							#@log.debug "read from udp socket"
-							input_traf = pudp.rcv()
-							#@log.debug "<<INPUT: #{input_traf.size} bytes"
+						if input_traf
 							tun.write(input_traf)
 							read_in += input_traf.size
 						end
+					end
+				end
 
-						if rs.include?(tun) 
-							#@log.debug "read from tun interface"
-							output_traf = tun.read_nonblock(1500)
-							#@log.debug "OUTPUT>>: #{output_traf.size} bytes"
+				write_t = Thread.new do
+					Thread.current.abort_on_exception = true
+					loop do 
+						output_traf = begin 
+							tun.read_nonblock(1500)
+						rescue IO::WaitReadable 
+							output_traf = nil
+						end
+
+						if output_traf
 							pudp.snd(output_traf)
 							write_out += output_traf.size
 						end
-						
-					end #IO loop
-				end	#IO thread
+					end
+				end	
+
+				print_t = Thread.new do
+					Thread.current.abort_on_exception = true
+					prev_read = nil
+					prev_write = nil
+					loop do 
+						if prev_read != read_in || prev_write != write_out
+							$stderr.print "\r#{name}: in=#{read_in}, out=#{write_out}"
+							prev_read = read_in
+							prev_write = write_out
+						end
+						sleep(0.2)
+					end
+				end
 
 				ping_t = Thread.new do 
 					Thread.current.abort_on_exception = true
@@ -567,8 +586,10 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 				begin
 					bloc.call(peer_addr)
 				ensure
+					print_t.kill()
 					ping_t.kill()
-					io_t.kill()					
+					write_t.kill()
+					read_t.kill()
 				end
 			end #close tunnel here
 

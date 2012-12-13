@@ -21,9 +21,13 @@ class UDPio < Struct.new(:sock, :addr, :port)
 
 	def read(amt=DEFAULT_READ_SIZE)
 		@udp_r_mtx.synchronize do 
-			msg, addr_info = self.sock.recvfrom(amt)
+			msg, addr_info = recvfrom(amt)
 			msg
 		end
+	end
+
+	def recvfrom(amt)
+		return self.sock.recvfrom(amt)
 	end
 end
 
@@ -32,7 +36,7 @@ class UDPctx < UDPio
 	def read(amt=DEFAULT_READ_SIZE)
 		@udp_r_mtx.synchronize do 
 			loop do 
-				msg, addr_info = self.sock.recvfrom(amt)
+				msg, addr_info = recvfrom(amt)
 				if addr_info[1] == self.port \
 						&& addr_info[3] == self.addr
 					return msg
