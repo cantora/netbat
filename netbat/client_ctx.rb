@@ -3,7 +3,7 @@ require 'netbat/proto_proc'
 
 require 'base64'
 
-['INFO', 'HP0'].each do |fname|
+['INFO', 'HP0', 'HP1'].each do |fname|
 	require File.join('netbat', 'proto_proc', fname)
 end
 

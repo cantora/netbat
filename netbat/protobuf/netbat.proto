@@ -11,6 +11,7 @@ message Msg {
 		RESET		= 2;
 
 		HP0			= 65;
+		HP1			= 66;
 	}
 
 	enum HostType {

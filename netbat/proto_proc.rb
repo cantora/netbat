@@ -48,12 +48,31 @@ class PunchProcDesc < ProtoProcDesc
 		end
 	end
 
+	def self.brute_udp(udpsock, dst_addr, token)
+		ports = (1025..(2**16)-1).sort_by {|x| rand }
+
+		ports.each do |port|
+			udpsock.send("#{token}#{port}", 0, dst_addr, port)
+		end
+	end
+
 	#warning this may wait forever, so run it in another thread
 	def self.wait_udp(usock, token, timeout=15)
+		tlen = token.size
 		loop do 
 			data, addrinfo = usock.recvfrom(token.size)
-			if token == data
+			if token == data[0..tlen]
 				return PunchedUDP.new(usock, addrinfo[3], addrinfo[1])
+			end
+		end
+	end
+
+	def self.wait_brute_udp(usock, token, timeout=120)
+		tlen = token.size
+		loop do 
+			data, addrinfo = usock.recvfrom(512)
+			if token == data[0..(tlen-1)]
+				return [PunchedUDP.new(usock, addrinfo[3], addrinfo[1]), data[tlen..-1] ]
 			end
 		end
 	end
@@ -67,7 +86,7 @@ class PunchProcDesc < ProtoProcDesc
 				Timeout::timeout(2) do
 					return if pudp.rcv() != token
 				end
-			rescue Timeout::error
+			rescue Timeout::Error
 				return
 			end
 		end
