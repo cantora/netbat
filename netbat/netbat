@@ -25,7 +25,7 @@ module Netbat
 	
 	class Cmd
 
-		DEFAULT_TUN_PREFIX = [[169, 254, 252, 0], 30]
+		DEFAULT_TUN_PREFIX = [[169, 254, 252, 252], 30]
 		def self.role_addr_suffix(is_server)
 			if is_server
 				253
