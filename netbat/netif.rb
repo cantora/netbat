@@ -1,7 +1,9 @@
 
-
 module Netbat
 
+#provides a bunch of helper functions for 
+#configuring a network interface device
+#using ioctl
 module Netif
 	#/usr/include/linux/sockios.h
 	#/usr/include/linux/if.h
@@ -105,6 +107,8 @@ module Netif
 
 	class Base
 		def initialize(fd, name)
+			#need to create a socket to get access to the device
+			#through ioctl (this socket isnt used for anthing)
 			@fd = UDPSocket.new
 			@name = name
 		end

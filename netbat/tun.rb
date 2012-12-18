@@ -14,6 +14,7 @@ module Tun
 
 			#ifr = [ "nbtun#{rand(256)}", IFF_TUN|IFF_NO_PI ].pack("a16S")
 			ifr = [ "nbtun#{rand(256)}", IFF_TUN ].pack("a16S")
+			#create the tunnel interface
 			tun.ioctl(SETIFF, ifr)
 			ifname = ifr[0, 16].gsub(/\x00/, "")
 		

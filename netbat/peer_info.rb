@@ -1,9 +1,9 @@
 require 'netbat/msg'
 require 'netbat/public'
-require 'system/getifaddrs'
 
 module Netbat
 
+#container for information about a host
 class PeerInfo
 
 	attr_reader :host_type, :supported_ops
@@ -23,6 +23,7 @@ class PeerInfo
 
 end
 
+#container for information about the local host
 class LocalInfo
 
 	attr_reader :ipv4  #, :ifc, :ifc_ipv4
@@ -38,9 +39,8 @@ class LocalInfo
 			end
 		end
 
+		#auto-discovery of public IP only if user doesnt supply it
 		@ipv4 = self.class::find_public_addr() if @ipv4.nil?
-		#@ifc = :eth0
-		#@ifc_ipv4 = System.get_ifaddrs[@ifc][:inet_addr]
 	end
 	
 	def host_type

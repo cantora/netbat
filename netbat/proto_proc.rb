@@ -2,6 +2,7 @@ require 'netbat/socket'
 
 module Netbat
 
+#generic description of a protocol procedure
 class ProtoProcDesc
 
 	@@procedures = {}
@@ -15,6 +16,7 @@ class ProtoProcDesc
 	end
 end
 
+#description of a protocol procedure for NAT hole punching
 class PunchProcDesc < ProtoProcDesc
 	def self.supports?(my_type, peer_type)
 		return false
@@ -24,18 +26,23 @@ class PunchProcDesc < ProtoProcDesc
 
 	end
 
+	#a successfully hole punched UDP socket
 	class PunchedUDP < UDPctx
 		include PunchProcResult
 		alias_method :rcv, :read
 		alias_method :snd, :write
 	end
 
+	#random token for confirming two way connectivity
 	def self.new_token()
 		return (0..(7 + rand(9)) ).map do |i| 
 			rand(0x100)
 		end.pack("C*")
 	end
 
+	#repeatedly send the token to peer. peer will
+	#send a OOB acknowledgement when it receives the
+	#token over hole punched UDP
 	def self.confirm_udp(pudp, token, timeout=15)
 		begin
 			Timeout::timeout(timeout) do 
@@ -48,6 +55,8 @@ class PunchProcDesc < ProtoProcDesc
 		end
 	end
 
+	#span the token to every port with the destination
+	#port embedded in the UDP message
 	def self.brute_udp(udpsock, dst_addr, token)
 		ports = (1025..(2**16)-1).sort_by {|x| rand }
 
@@ -56,6 +65,8 @@ class PunchProcDesc < ProtoProcDesc
 		end
 	end
 
+	#wait to receive a udp message with the given token.
+	#return a PunchedUDP socket on success
 	#warning this may wait forever, so run it in another thread
 	def self.wait_udp(usock, token, timeout=15)
 		tlen = token.size
@@ -67,6 +78,9 @@ class PunchProcDesc < ProtoProcDesc
 		end
 	end
 
+	#wait to receive a UDP message with given token that has
+	#been brute forced. extract the port number used to get through
+	#and return it along with the PunchedUDP object
 	def self.wait_brute_udp(usock, token, timeout=120)
 		tlen = token.size
 		loop do 
@@ -93,8 +107,17 @@ class PunchProcDesc < ProtoProcDesc
 	end
 end
 
+#protocol procedure state machine
+#this is the real meat of OOB communication: 
+#procedure files (e.g. INFO.rb, HP0.rb) return
+#an instance of ProtoProc with callbacks 
+#defined based on the current state. the 
+#callbacks return the state to transition to
+#(or no transition).
 class ProtoProc
 
+	#the state machine has terminated if it has
+	#reached one of these states
 	TERMINAL_STATES = [
 		:failure, 
 		:success, 
@@ -103,6 +126,7 @@ class ProtoProc
 		:timeout
 	]
 
+	#the initial state
 	RESERVED_STATES = [
 		:init, 
 	]
@@ -114,8 +138,12 @@ class ProtoProc
 		@state = :start
 		@state_mtx = Mutex.new
 		
+		#callbacks for entry into a state
 		@on_entry = {}
+		#callbacks for a message recieved while in 
+		#a given state.
 		@on_recv = {}
+
 		@log = Netbat::LOG
 		@history = []
 		@peer_timeout = 9 #seconds
@@ -138,7 +166,7 @@ class ProtoProc
 	end
 
 	def on_entry(state, &bloc)
-		@on_entry[:init] = bloc
+		@on_entry[state] = bloc
 	end
 
 	def init(&bloc)
@@ -153,13 +181,18 @@ class ProtoProc
 		on_recv(:success, &bloc)
 	end
 
+	#transition to :next, store some user data as :user
 	Transition = Struct.new(:next, :user)
+	#on_recv callbacks can return this to 
+	#signifiy that no transition should take
+	#place
 	NullTransition = :null_transition
 
 	def trans_null()
 		return NullTransition
 	end
 
+	#create a transition to state and save the user data
 	def trans(state, user=nil)
 		return Transition.new(state, user)
 	end
@@ -193,21 +226,25 @@ class ProtoProc
 		@on_terminate = bloc
 	end
 
+	#lock the state variable
 	def state_lock(&bloc)
 		@state_mtx.synchronize do 
 			bloc.call()
 		end
 	end
 
+	#dispatch a received message to a 
+	#function in the on_recv table
 	def recv(msg)
 		@state_mtx.synchronize do
 			if !terminated? && @on_recv.key?(@state)
 				result = instance_exec(msg, &@on_recv[@state])
-				if !result.is_a?(Transition)
-					raise "expected a transition object from callback"	
-				end
 
 				if result != NullTransition
+					if !result.is_a?(Transition)
+						raise "expected a transition object from callback"	
+					end
+
 					make_transition(result)
 				end
 			else
@@ -234,6 +271,9 @@ class ProtoProc
 		end
 	end
 
+	#save tr in the transition history, set the @state
+	#variable, run on_entry callbacks, update the 
+	#idle timer
 	#must have a lock on @state while in this function
 	def make_transition(tr)
 		return if tr == NullTransition
@@ -256,6 +296,9 @@ class ProtoProc
 	class Timeout < StandardException; end
 	class PeerUnavailable < StandardException; end
 
+	#check the status of the procedure and return the result
+	#if the procedure was successful. throw an appropriate
+	#exception if the procedure has failed.
 	def status()
 		#dont need to lock here b.c. if @state is one of these we are terminated
 		case @state
@@ -303,6 +346,7 @@ class ProtoProc
 	def run()
 		startup()
 
+		#loop until successful (failure will raise an exception)
 		loop do 
 			sleep(0.1)
 

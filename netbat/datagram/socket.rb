@@ -6,6 +6,7 @@ require 'uri'
 
 module Netbat::Datagram
 
+#abstraction for a OOB datagram socket
 class Socket
 
 	class Error

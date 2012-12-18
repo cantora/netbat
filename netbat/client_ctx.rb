@@ -9,15 +9,20 @@ end
 
 module Netbat
 
+#class to manage the connection state between
+#a client and a server
 class ClientCtx < Datagram::ConnectionCtx
 
 	def run_proto_proc(pproc)
+		#need to maintain which procedure is 
+		#currently running (see datagram.rb)
 		@current_proc = pproc
 		return @current_proc.run()
 	end
 
 	class AllProceduresFailed < Exception; end
 	
+	#run the procedures in procs against the server
 	def run(procs)
 		peer_info = run_proto_proc(INFO::client(self, @local_info) )
 
@@ -25,9 +30,10 @@ class ClientCtx < Datagram::ConnectionCtx
 		@log.debug "peer_info: #{peer_info.inspect}"
 		
 		result = nil
-		#ProtoProcDesc::procedures.select {|x| x.ancestors.include?(PunchProcDesc) }.each do |ppd|
 		procs.each do |ppd|
 			@log.info "attempt to punch udp cx via #{ppd.inspect}"
+
+			#only run procedures that match the local/peer host types
 			if ppd.supports?(@local_info.host_type, peer_info.host_type)
 				result = begin
 					run_proto_proc(ppd.client(self, @local_info))

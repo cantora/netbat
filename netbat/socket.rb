@@ -2,6 +2,8 @@ require 'netbat/log'
 
 module Netbat
 
+#a container with a UDP socket and a peer address
+#that has IO like read/write methods
 class UDPio < Struct.new(:sock, :addr, :port)
 	DEFAULT_READ_SIZE = 1500
 
@@ -29,6 +31,8 @@ end
 
 class UDPctx < UDPio
 
+	#udp container that filters out messages that arent
+	#from the peer address
 	def read(amt=DEFAULT_READ_SIZE)
 		@udp_r_mtx.synchronize do 
 			loop do 

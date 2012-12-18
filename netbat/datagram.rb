@@ -3,6 +3,7 @@ require 'netbat/msg'
 
 module Netbat::Datagram
 
+#OOB datagram connection container
 class Connection
 	attr_reader :peer_addr, :seq, :peer_seq, :socket
 
@@ -27,6 +28,8 @@ class Connection
 	end
 end
 
+#helper functions for a OOB datagram connection
+#takes care of encoding/decoding messages
 class ConnectionCtx < Connection
 
 	def initialize(dg_socket, peer_addr, local_info)
@@ -62,6 +65,7 @@ class ConnectionCtx < Connection
 		end
 	end
 
+	#dispatch received messages to the current procedure
 	def proc_recv(decoded_msg)
 		current_proc_lock do 
 			if @current_proc.nil?
@@ -72,6 +76,8 @@ class ConnectionCtx < Connection
 		end
 	end
 
+	#decode an error message into a protobuf
+	#reset message
 	def decode_err(err)
 		return Netbat::Msg.new(
 			:op_code => Netbat::Msg::OpCode::RESET,
@@ -85,6 +91,7 @@ class ConnectionCtx < Connection
 		proc_recv_err(e)
 	end
 	
+	#dispatch error messages to the current procedure
 	def proc_recv_err(err)
 		current_proc_lock do
 			if @current_proc.nil?
@@ -98,6 +105,7 @@ class ConnectionCtx < Connection
 
 end
 
+#filter out messages not from the given peer_addr
 class Filter
 
 	def initialize(dg_socket, peer_addr)
@@ -132,7 +140,8 @@ class Filter
 	
 end
 
-
+#demultiplex messages from multiple peers into
+#different connection context objects
 class Demuxer
 
 	attr_reader :socket	
@@ -154,10 +163,12 @@ class Demuxer
 		@clock = nil
 	end
 
+	#set clock call back
 	def on_clock(&bloc)
 		@clock = bloc
 	end
 
+	#demultiplex to callback function
 	def demux(&bloc)
 		if bloc.nil?
 			raise ArgumentError.new, "function must be provided"			
@@ -168,9 +179,12 @@ class Demuxer
 			@active_mtx.synchronize do
 				@log.debug("active: #{@active.keys.inspect}")
 				if !@active.has_key?(from_addr)
+					#if this is a new connection, generate a context for it
 					new_ctx = @ctx_factory.call(from_addr, msg, @active)
+					#nil new_ctx means we should ignore this peer for now
 					@active[from_addr] = new_ctx if !new_ctx.nil?
 				else
+					#dispatch the context and message to handler
 					bloc.call(@active[from_addr], msg, @active)
 				end
 				@active[from_addr].inc_peer_seq()
@@ -184,6 +198,9 @@ class Demuxer
 				prefix = "#{from_addr.node}@#{from_addr.domain}"
 				reg_prefix = /^#{Regexp::escape(prefix)}/
 
+				#dispatch error messages to all the contexts which
+				#match the username. i.e. asdf@example.com/r1 and 
+				#asdf@example.com/r2 will both be notified
 				@active.each do |addr, ctx|
 					next if addr.to_s.match(reg_prefix).nil?
 					bloc.call(ctx, err)
@@ -192,6 +209,9 @@ class Demuxer
 		end
 		
 		@log.debug "demux: wait for activity"
+		#callbacks are delegated, so now we just
+		#wait and periodically call the clock 
+		#function
 		i = 0
 		loop do 
 			break if !@socket.bound?

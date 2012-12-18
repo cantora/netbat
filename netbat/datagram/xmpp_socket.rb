@@ -8,6 +8,7 @@ require 'uri'
 
 module Netbat::Datagram
 
+#implementation of XMPP datagram socket
 class XMPPSocket < Socket
 	attr_reader :password, :addr
 

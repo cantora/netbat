@@ -44,6 +44,8 @@ HP0: hole punch with udp
 		pdesc = self
 		pproc.init do
 			@src_port = pdesc.next_port()
+			#send peer my IP address and an arbitrary source port
+			#i plan on using
 			send_msg(Msg.new(
 				:op_code =>	OPCODE,
 				:addr => Addr.new(
@@ -56,7 +58,7 @@ HP0: hole punch with udp
 		end
 
 		pproc.on_terminate do 
-			#cleanup :confirm_thread thread if its still running
+			#cleanup @confirm_thread thread if its still running
 			if !@confirm_thread.nil?
 				@confirm_thread.kill
 				@confirm_thread = nil
@@ -68,15 +70,22 @@ HP0: hole punch with udp
 				if msg.addr.ip == 0 || !(1025..(2**16-1)).include?(msg.addr.port)
 					proto_error("invalid ip or port: #{msg.inspect}")
 				else
+					#peer sent us their IP address and the source port
+					#they used to punch a hole in their NAT. 
 					addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
 					@log.debug "connect to #{addr}:#{msg.addr.port}"
 
 					u = UDPSocket.new
 					u.bind("0.0.0.0", @src_port)
+					#this should go through the server's NAT, as they
+					#already sent us a packet
 					u.send("client", 0, addr, msg.addr.port)
 					@pudp = PunchedUDP.new(u, addr, msg.addr.port)
 					
 					if msg.token.size > 0
+						#the server gave us a token to use for confirmation
+						#so we should send that message until we get an
+						#acknowledgement (in OOB channel) from the server
 						@token = msg.token
 						@confirm_thread = Thread.new do
 							Thread.current.abort_on_exception = true
@@ -102,7 +111,6 @@ HP0: hole punch with udp
 				#optimization: peer doesnt have to wait for 2 seconds
 				#to be certain no more confirm tokens are being sent
 				#if it sees different data than the token
-				
 				@pudp.snd(
 					loop { x = PunchProcDesc::new_token(); break x if x != @token }
 				)
@@ -133,8 +141,13 @@ HP0: hole punch with udp
 				proto_error("error: (#{msg.err_type.inspect}) #{msg.err.inspect}")
 			elsif msg.check(:op_code => OPCODE)
 				src_port = pdesc.next_port()
+				#client sent us their IP and source port
 				addr = IPAddr::ipv4_from_int(msg.addr.ip).to_s
 
+				#send a packet out to client which will probably 
+				#get dropped by their NAT. this should cause our
+				#NAT to open a translation to accept response 
+				#UDP packets from the client
 				@log.debug "udp to #{addr}:#{msg.addr.port}"
 				u = UDPSocket.new
 				u.bind("0.0.0.0", src_port)
@@ -142,6 +155,9 @@ HP0: hole punch with udp
 				
 				token = PunchProcDesc::new_token()
 
+				#tell client our source port and IP address.
+				#also give them a token to send via UDP so
+				#we can confirm connectivity
 				send_msg(Msg.new(
 					:op_code => OPCODE,
 					:addr => Addr.new(
@@ -165,6 +181,8 @@ HP0: hole punch with udp
 							raise "wtf, invalid pudp: #{pudp.inspect}"
 						end
 
+						#tell client that we received a UDP message
+						#with the confirmation token
 						send_msg(Msg.new(
 							:op_code => OPCODE
 						))

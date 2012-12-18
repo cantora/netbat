@@ -6,6 +6,7 @@ require 'nokogiri'
 
 module Netbat
 
+#routines for discovering the public IP address of this host
 module Public
 
 	class DiscoveryException < Exception; end
@@ -34,6 +35,7 @@ module Public
 	def self.ipv4_port_test(port)
 		require 'socket'
 
+		#this website echos both the IP and the source port :D
 		u = URI.parse("http://www.dbc.uci.edu/cgi-bin/ipecho.pl")
 
 		output = begin

@@ -14,13 +14,14 @@ class HP1 < PunchProcDesc
 	def self.usage()
 		str =<<-EOS
 HP1: hole punch with udp
-	server sends UDP packet out to port 53 through NAT (probably dies on client's NAT)
-	client "replies" using OOB data to known dest port using src port 53 and
-	should get through server's NAT.
-	this will probably fail if the NAT port translates aggressively, but
-	still might work if the port translation doesnt always translate the port
-	(i.e. only translates source port if someone else is using it). 
-
+	server sends UDP packet out to port 53 through NAT (probably dies on client's NAT).
+	server then tells client its IP and source port, however this procedure assumes
+	that the server NAT translates the source port, so the client doesnt use the 
+	source port. instead the client sends a confirmation message to every port
+	on the client IP address. each of these confirmation messages has the destination
+	port embedded in packet (after the confirmation token). one of these should get 
+	through, at which point the server extracts the port number from the message and
+	tells the client (via OOB channel) the correct server source port.
 
 		EOS
 

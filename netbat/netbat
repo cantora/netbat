@@ -22,10 +22,14 @@ require 'logger'
 require 'net/ping/icmp'
 
 module Netbat
-	
+
+	#all the top level action happens in this class
 	class Cmd
 
+		#default IP network for the tunnel interface
 		DEFAULT_TUN_PREFIX = [[169, 254, 252, 252], 30]
+		#by convention the server gets 169.254.252.253/30
+		#and the client gets 169.254.252.254/30
 		def self.role_addr_suffix(is_server)
 			if is_server
 				253
@@ -238,6 +242,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			return options
 		end #self.parse
 
+		#switch to get the OOB datagrame source address
+		#and authentication based the type of OOB datagram.
 		def self.src_addr_and_auth(options, uri_str)
 			u = URI.parse(uri_str)
 
@@ -251,6 +257,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			end
 		end
 
+		#similar to above but for destination address (client mode)
+		#no authentication is needed here of course.
 		def self.dst_addr(options, uri_str)
 			u = URI.parse(uri_str)
 
@@ -282,7 +290,10 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			Netbat::LOG.level = @log.level
 
 		end
-		
+
+		#print the public IP address for this host
+		#this is just to help user of netbat debug problems
+		#with the automatic discovery of public address (see public.rb)
 		def public_addr()
 			begin 
 				if @options[:v4_port]
@@ -308,6 +319,7 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			end
 		end
 
+		#bind the source datagram based on the address and authentication data
 		def bind_datagram(bind_addr, auth)
 			sock = case @options[:sb_type]
 			when :xmpp
@@ -324,16 +336,22 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			return sock
 		end
 
+		#this is the main function for server mode
 		def cmd_listen
 			@log.debug "cmd_listen"
 			@log.debug Netbat::thread_list()
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			@log.debug Netbat::thread_list()
 
+			#consolidate information about our environement:
+			#	public ip address, supported op codes, and host type
 			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants, :ipv4 => @options[:addr])
 			local_info.freeze
 
 			@log.debug "local info: #{local_info.inspect}"
+			#demultiplex connections from different clients to 
+			#seperate contexts. right now this limits the client
+			#connections to 1			
 			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg, active|
 				@log.info "new connection from #{peer.to_s}"
 				
@@ -349,6 +367,7 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			end
 			
 			result = nil
+			#gets called periodically by the dmx thread
 			dmx.on_clock do |ctx|
 				result = ctx.clock()
 				if result.is_a?(PunchProcDesc::PunchedUDP)
@@ -358,6 +377,9 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 				end
 			end
 
+			#handler for a message from peer.
+			#this will return when the datagram socket is 
+			#closed (see directly above).
 			dmx.demux do |ctx, msg|
 				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
 
@@ -377,6 +399,7 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			action_switch(result)
 		end
 
+		#main function for client mode
 		def cmd_connect
 			@log.debug "cmd_connect"
 			local_info = LocalInfo.new(
@@ -388,10 +411,12 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 
 			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
 			peer_addr = @options[:dst_addr]
+			#create a context with peer (server)
 			ctx = ClientCtx.new(sock, peer_addr, local_info)
 			
 			filter = Datagram::Filter.new(sock, peer_addr) 
 
+			#callback handler for messages from server
 			filter.on_msg do |msg|
 				begin
 					ctx.recv(msg)
@@ -401,6 +426,7 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 				end
 			end
 
+			#callback for error messages from server
 			filter.on_err do |err|
 				begin
 					ctx.recv_err(err)
@@ -410,6 +436,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 				end
 			end
 
+			#this is where we actually start sending messages
+			#server is largely passive, with client giving all the commands
 			pudp = begin
 				ctx.run(@options[:cx_procs].map {|name| ProtoProcDesc::procedures[name]})
 			rescue ClientCtx::AllProceduresFailed => e
@@ -429,18 +457,19 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			action_switch(pudp)
 		end
 
+		#switch based on user provided flags
 		def action_switch(pudp)
-			if !@options[:tun].nil?
+			if !@options[:tun].nil?		#create virtual IPv4 connectivity via tunnel interface
 				begin
 					action_tun(pudp) do 
 						Thread.stop
 					end
 				rescue Interrupt => e
 				end
-			elsif @options[:connect]
+			elsif @options[:connect] 	#pipe to/from provided UDP destination
 				action_connect(pudp)					
 			else
-				action_io(pudp)
+				action_io(pudp)			#cat stdin/stdout to UDP hole-punched connection
 			end
 		end
 
@@ -482,7 +511,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 		def action_connect(pudp)
 			@log.debug "action_connect"
 			u = UDPSocket.new()
-						
+			
+			#connect to user provided address and pipe to/from it			
 			sock = UDPio.new(u, @options[:connect][0], @options[:connect][1])
 
 			pipe_pudp(pudp, sock) do 
@@ -497,7 +527,8 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 			@log.debug "action_tun"
 			addr, mask, peer_addr = if @options[:tun].is_a?(Array)
 				raise "invalid peer address" if @options[:tun_peer].nil?
-				[*@options[:tun], @options[:tun_peer].join(".")]
+				#use user supplied tunnel address
+				[*@options[:tun], @options[:tun_peer].join(".")]		
 			else
 				arr = DEFAULT_TUN_PREFIX[0]
 				arr[3] = self.class.role_addr_suffix(@options[:listen])
@@ -554,6 +585,9 @@ create a tunnel interface with ADDR/MASK to connect to peer (requires root).
 					end #IO loop
 				end	#IO thread
 
+				#this thread will send ICMP pings across the tunnel
+				#to the peer at intervals of :keepalive to help keep
+				#the tunnel alive and to detect when it has died.
 				ping_t = Thread.new do 
 					Thread.current.abort_on_exception = true
 					

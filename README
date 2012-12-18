@@ -63,6 +63,7 @@ gem dependencies:
 	ruby-protocol-buffers
 	blather
 	racket
+	net-ping
 
 after installing the above, run
 $> make
@@ -84,3 +85,5 @@ in both cases the --tun flag is set to indicate
 that netbat should setup a tunnel interface 
 for full virtual IP connectivity between host
 A and B (this is why sudo is required).
+
+for more details run ./netbat -h and/or look at the code.
