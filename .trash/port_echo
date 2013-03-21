@@ -1,0 +1,259 @@
+#!/usr/bin/env ruby
+#http://www.dbc.uci.edu/cgi-bin/ipecho.pl
+
+module Netbat; end
+
+THIS_DIR = File.expand_path(File.dirname(__FILE__))
+$: << File.join(THIS_DIR, "..")
+
+require 'optparse'
+require 'uri'
+
+module Netbat
+	
+	class Cmd
+
+		SB_TYPES = [:xmpp]
+		
+		def self.parse(argv)
+			options = {
+				:verbose 			=> 0,
+				:cx_amt				=> 1,
+				:sb_type			=> :xmpp,
+				:xmpp_sub			=> false
+			}
+												
+			optparse = OptionParser.new do |opts|
+				opts.banner = "usage: #{File.basename(__FILE__)} [options] SRC-ADDR [DST-ADDR]"
+				opts.separator ""
+
+				opts.on('-l', '--listen', 'wait for incoming connections' ) do |listen|
+					options[:listen] = listen
+				end
+				
+				n_desc = [
+					"amount of connections to accept (0 => unlimited).",
+					"default: #{options[:cx_amt].inspect}" 
+				].join(" ")
+				opts.on('-n', '--cx-amt N', Integer, n_desc) do |amt|
+					options[:cx_amt] = (amt < 0)? 1 : amt
+				end
+				
+				b_desc = [
+					"use TYPE for side band. default: #{options[:sb_type].inspect}",
+					#"#{"\t"*5}types: #{SB_TYPES.join(",")}"
+				].join("\n")
+
+				opts.on('-b', '--side-band TYPE', SB_TYPES, b_desc) do |sb|
+					options[:side_band] = sb
+				end
+
+				host_types = Netbat::Msg::HostType.constants.map {|x| x.to_s}
+				t_desc = "type of host: #{host_types.join(", ")}"
+				opts.on('-t', '--host-type TYPE', host_types, t_desc) do |ht|
+					options[:host_type] = ht.to_sym
+				end
+
+				opts.separator ""
+				opts.separator "xmpp options:"
+				xmpp_sub_desc = "subscribe to DST-ADDR before connecting. default: #{options[:xmpp_sub].inspect}"
+				opts.on('--[no-]xmpp-sub', xmpp_sub_desc) do |xmpp_sub|
+					options[:xmpp_sub] = xmpp_sub
+				end
+
+				opts.separator ""
+				opts.separator "common options:"
+
+				opts.on('-v', '--verbose', 'verbose output') do
+					options[:verbose] += 1
+				end
+
+				opts.on('-h', '--help', 'display this message') do
+					raise ""
+				end
+			end
+			
+			begin
+				optparse.parse!(argv)
+				
+				options[:src_addr] = argv.shift
+				if options[:src_addr].nil? || options[:src_addr].strip.empty?
+					raise "invalid SRC-ADDR: #{options[:src_addr].inspect}" 
+				end
+				options[:src_addr], options[:src_auth] = begin
+					src_addr_and_auth(options, options[:src_addr])
+				rescue ArgumentError => e
+					raise "invalid source address: #{e.message}"
+				end
+
+				if options[:listen].nil?
+					options[:dst_addr] = argv.shift
+					if options[:dst_addr].nil? || options[:dst_addr].strip.empty?
+						raise "invalid DST-ADDR: #{options[:dst_addr].inspect}"
+					end
+
+					options[:dst_addr] = begin
+						dst_addr(options, options[:dst_addr])
+					rescue ArgumentError => e
+						raise "invalid destination address: #{e.message}"
+					end
+				end
+
+				if !Netbat::Msg::HostType.constants.include?(options[:host_type])
+					raise "must provide valid host type. got: #{options[:host_type].inspect}"
+				end
+
+			rescue Exception => e
+				puts e.message
+				puts optparse
+				
+				exit
+			end	
+			
+			return options
+		end #self.parse
+
+		def self.src_addr_and_auth(options, uri_str)
+			u = URI.parse(uri_str)
+
+			case options[:sb_type]
+			when :xmpp
+				return Datagram::XMPPSocket::XMPPAddr.uri_to_addr_and_auth(u)
+			else
+				raise "shouldnt get here"				
+			end
+		end
+
+		def self.dst_addr(options, uri_str)
+			u = URI.parse(uri_str)
+
+			case options[:sb_type]
+			when :xmpp
+				return Datagram::XMPPSocket::XMPPAddr.from_uri(u)
+			else
+				raise "shouldnt get here"				
+			end
+		end
+
+		def initialize(options)
+			@options = options
+			@log = Logger.new($stderr)
+			@log.formatter = proc do |sev, t, pname, msg|
+				Thread.current.object_id.to_s(16) + ":" + msg + "\n"
+			end
+
+			@log.level = case @options[:verbose]
+			when 0
+				Logger::WARN
+			when 1
+				Logger::INFO
+			else
+				Logger::DEBUG
+			end
+			Netbat::LOG.level = @log.level
+
+		end
+		
+		def run()
+			if @options[:listen]
+				cmd_listen
+			else
+				cmd_connect
+			end
+		end
+
+		def bind_datagram(bind_addr, auth)
+			sock = case @options[:sb_type]
+			when :xmpp
+				Datagram::XMPPSocket.new(bind_addr, auth)
+			else
+				raise "invalid side band type: #{@options[:sb_type].inspect}"
+			end
+
+			sock.on_bind do 
+				@log.info "bound datagram to addr: #{sock.addr.inspect}"
+			end
+			sock.bind
+
+			return sock
+		end
+
+		def cmd_listen
+			@log.debug "cmd_listen"
+			@log.debug Netbat::thread_list()
+			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
+			@log.debug Netbat::thread_list()
+
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
+			local_info.freeze
+
+			dmx = Datagram::Demuxer.new(sock) do |peer, first_msg|
+				@log.info "new connection from #{peer.to_s}"
+				ctx = ServerCtx.new(sock, peer, local_info)
+				ctx.recv(first_msg)
+
+				ctx
+			end
+			
+			dmx.on_clock do |ctx|
+				ctx.clock()
+			end
+
+			dmx.demux do |ctx, msg|
+				@log.debug "message #{ctx.peer_seq} from #{ctx.peer_addr.inspect}: #{msg.inspect}"
+
+				if msg.is_a?(Datagram::Socket::Error)
+					ctx.recv_err(msg)
+				else
+					ctx.recv(msg)
+				end
+			end
+		end
+
+		def cmd_connect
+			@log.debug "cmd_connect"
+			local_info = LocalInfo.new(@options[:host_type], Msg::OpCode.constants)
+
+			sock = bind_datagram(@options[:src_addr], @options[:src_auth])
+			peer_addr = @options[:dst_addr]
+			ctx = ClientCtx.new(sock, peer_addr, local_info)
+			
+			filter = Datagram::Filter.new(sock, peer_addr) 
+
+			filter.on_msg do |msg|
+				begin
+					ctx.recv(msg)
+				rescue Exception => e
+					$stderr.puts Netbat::exception_str("fatal exception in recv handler: #{e.inspect}", e)
+					exit!(1)
+				end
+			end
+
+			filter.on_err do |err|
+				begin
+					ctx.recv_err(err)
+				rescue Exception => e
+					$stderr.puts Netbat::exception_str("fatal exception in recv_err handler: #{e.inspect}", e)
+					exit!(1)
+				end
+			end
+
+			begin
+				ctx.loop()
+			rescue ProtoProc::StandardException => e
+				$stderr.puts e.message
+			rescue Exception => e
+				$stderr.puts Netbat::exception_str("fatal exception in run loop", e)
+				exit!(1)
+			end
+		end
+
+	end #Cmd
+end
+
+
+if $0 == __FILE__
+	options = Netbat::Cmd::parse(ARGV)
+	nb = Netbat::Cmd.new(options)
+	nb.run
+end
