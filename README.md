@@ -1,0 +1,93 @@
+# netbat
+
+netbat is a NAT traversal/hole-punching proof of 
+concept written in ruby. the basic idea is to
+establish a direct UDP connection between two
+hosts that are NAT'd/firewalled without needing
+a _dedicated_ publicly addressable server to
+negotiate the hole-punching. of course, since
+neither host can directly connect to the other,
+they must have some way of communicating in 
+order cooperate for any hole-punching procedure.
+
+to facilitate this bootstrap communication, 
+netbat provides a reliable datagram abstraction
+layer for out of band communication between the
+two hosts. any protocol which will allow the
+hosts to send datagrams to each other can be
+implemented under this abstraction layer. 
+currently, only XMPP is implemented for out of
+band communication, but there are many other
+possibilities.
+
+
+## how it works
+
+in the simplest possible scenario where both 
+NATs are not translating source ports, we have 
+host **A** send a UDP packet out to the public IP 
+address of host **B** (`IP_B`) with source port `N_A` 
+and destination port `N_B`. this packet will get 
+dropped by the NAT for **B**, but the NAT for **A** 
+will open up a translation in its translation 
+table for a reply from `IP_B` with source port 
+`N_B` and destination port `N_A`. now if host **B** 
+sends a packet to the public IP address of 
+host **A** (`IP_A`) with destination port `N_A` and 
+source port `N_B`, then NAT **B** will open a 
+translation for a reply from host **A** and also 
+NAT **A** will translate the UDP packet such that 
+it will reach host **A** successfully. finally, 
+host **A** can reply to `IP_B` with source port `N_A` 
+and destination port `N_B` and NAT **B** will 
+translate such that the packet will reach host 
+**B**. at this point hosts **A** and **B** have two way 
+connectivity.
+
+all the parameters of this process such as 
+`IP_A`, `IP_B`, `N_A`, and `N_B` are communicated to
+peers using the out of band communication. 
+
+
+## installation
+
+netbat has only been tested on linux, but it
+may possibly work on some other *nix like 
+operating systems.
+
+* make dependencies: 
+	* protocol buffers compiler 
+	  (on debian: `apt-get install protobuf-compiler` )
+
+* gem dependencies:
+	* ruby-protocol-buffers
+	* blather
+	* racket
+	* net-ping
+
+after installing the above, run
+`make`
+in the netbat directory to create the ruby
+protocol buffers files.
+
+
+## usage
+
+on one host (call it host B), start the script
+in server mode:  
+```
+sudo ./netbat -l 'xmpp://<username1>:<password1>@example.com/asdf' -vvvvv -t FILTER --tun
+```
+the `-l` flag designates server mode
+
+on another host (call it host A), run the client:  
+```
+sudo ./netbat 'xmpp://<username2>:<password2>@example.com/qwer' 'xmpp://<username1>@example.com/asdf' -t FILTER -vv --tun
+```
+
+in both cases the `--tun` flag is set to indicate
+that netbat should setup a tunnel interface 
+for full virtual IP connectivity between host
+A and B (this is why sudo is required).
+
+for more details run `./netbat -h` and/or look at the code.
